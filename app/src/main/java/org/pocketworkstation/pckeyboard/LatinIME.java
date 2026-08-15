@@ -165,7 +165,6 @@ public class LatinIME extends InputMethodService implements
 
     private UserDictionary mUserDictionary;
     private UserBigramDictionary mUserBigramDictionary;
-    //private ContactsDictionary mContactsDictionary;
     private AutoDictionary mAutoDictionary;
 
     private Resources mResources;
@@ -639,10 +638,6 @@ public class LatinIME extends InputMethodService implements
         if (mUserDictionary != null)
             mUserDictionary.close();
         mUserDictionary = new UserDictionary(this, mInputLocale);
-        //if (mContactsDictionary == null) {
-        //    mContactsDictionary = new ContactsDictionary(this,
-        //            Suggest.DIC_CONTACTS);
-        //}
         if (mAutoDictionary != null) {
             mAutoDictionary.close();
         }
@@ -655,7 +650,6 @@ public class LatinIME extends InputMethodService implements
                 mInputLocale, Suggest.DIC_USER);
         mSuggest.setUserBigramDictionary(mUserBigramDictionary);
         mSuggest.setUserDictionary(mUserDictionary);
-        //mSuggest.setContactsDictionary(mContactsDictionary);
         mSuggest.setAutoDictionary(mAutoDictionary);
         updateCorrectionMode();
         mWordSeparators = mResources.getString(R.string.word_separators);
@@ -672,9 +666,6 @@ public class LatinIME extends InputMethodService implements
         if (mUserDictionary != null) {
             mUserDictionary.close();
         }
-        //if (mContactsDictionary != null) {
-        //    mContactsDictionary.close();
-        //}
         unregisterReceiver(mReceiver);
         unregisterReceiver(mPluginManager);
         setNotification(false);

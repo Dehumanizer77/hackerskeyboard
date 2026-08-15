@@ -25,7 +25,6 @@ import android.content.DialogInterface;
 import android.content.SharedPreferences;
 import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
-import android.content.pm.Signature;
 import android.content.res.Resources;
 import android.os.Build;
 import android.os.Bundle;
@@ -115,22 +114,17 @@ public class LatinIMESettings extends PreferenceScreenBase
 
         String version = "";
         try {
-            PackageInfo info = getPackageManager().getPackageInfo(getPackageName(), PackageManager.GET_SIGNATURES);
+            PackageInfo info = getPackageManager().getPackageInfo(getPackageName(), 0);
             version = info.versionName;
-            boolean isOfficial = false;
-            for (Signature sig : info.signatures) {
-                byte[] b = sig.toByteArray();
-                int out = 0;
-                for (int i = 0; i < b.length; ++i) {
-                    int pos = i % 4;
-                    out ^= b[i] << (pos * 4);
-                }
-                if (out == -466825) {
-                    isOfficial = true;
-                }
-                //version += " [" + Integer.toHexString(out) + "]";
+            // A 32-bit XOR fold of the signing certificate used to stand in for
+            // an integrity check here (HK-11). It is trivially collidable, so
+            // any repackager could claim the "official" label. Show the real
+            // certificate fingerprint instead: it asserts nothing on its own,
+            // and it can be compared against a published value.
+            String digest = DictPackTrust.certDigest(getPackageManager(), getPackageName());
+            if (digest != null && digest.length() >= 16) {
+                version += "  [" + digest.substring(0, 16) + "]";
             }
-            version += isOfficial ? " official" : " custom";
         } catch (PackageManager.NameNotFoundException e) {
             Log.e(TAG, "Could not find version info.");
         }
