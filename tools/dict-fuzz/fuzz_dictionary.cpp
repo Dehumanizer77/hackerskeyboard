@@ -24,6 +24,7 @@
 #include <cstdint>
 #include <vector>
 #include <string>
+#include <utility>
 
 #include "dictionary.h"
 
@@ -97,6 +98,111 @@ static std::vector<unsigned char> craftRunawayBigrams(int entries) {
     return d;
 }
 
+// ---------------------------------------------------------------- real trie
+// A well-formed dictionary built from a word list, used to check that the
+// bounds added for safety did not break ordinary suggestion lookups.
+struct TrieNode {
+    std::vector<std::pair<unsigned char, TrieNode*> > kids;
+    bool terminal;
+    int freq;
+    TrieNode() : terminal(false), freq(1) {}
+    ~TrieNode() {
+        for (size_t i = 0; i < kids.size(); ++i) delete kids[i].second;
+    }
+    TrieNode *child(unsigned char c) {
+        for (size_t i = 0; i < kids.size(); ++i) {
+            if (kids[i].first == c) return kids[i].second;
+        }
+        TrieNode *n = new TrieNode();
+        kids.push_back(std::make_pair(c, n));
+        return n;
+    }
+};
+
+static void serializeGroup(std::vector<unsigned char> &out, TrieNode *node) {
+    out.push_back((unsigned char)node->kids.size());
+    std::vector<std::pair<size_t, TrieNode*> > patches;
+    for (size_t i = 0; i < node->kids.size(); ++i) {
+        unsigned char ch = node->kids[i].first;
+        TrieNode *kid = node->kids[i].second;
+        bool hasKids = !kid->kids.empty();
+        out.push_back(ch);
+        if (hasKids) {
+            patches.push_back(std::make_pair(out.size(), kid));
+            out.push_back((unsigned char)(kid->terminal ? (0x80 | 0x40) : 0x40));
+            out.push_back(0);   // address, backpatched below
+            out.push_back(0);
+        } else {
+            out.push_back((unsigned char)(kid->terminal ? 0x80 : 0x00));
+        }
+        if (kid->terminal) {
+            out.push_back((unsigned char)(kid->freq & 0xFF));
+            out.push_back(0x00);   // no bigrams
+        }
+    }
+    for (size_t i = 0; i < patches.size(); ++i) {
+        size_t at = patches[i].first;
+        int addr = (int)out.size();
+        out[at] = (unsigned char)((out[at] & 0xC0) | ((addr >> 16) & 0x3F));
+        out[at + 1] = (unsigned char)((addr >> 8) & 0xFF);
+        out[at + 2] = (unsigned char)(addr & 0xFF);
+        serializeGroup(out, patches[i].second);
+    }
+}
+
+static std::vector<unsigned char> buildDictionary(const std::vector<std::string> &words) {
+    TrieNode root;
+    for (size_t i = 0; i < words.size(); ++i) {
+        TrieNode *n = &root;
+        for (size_t j = 0; j < words[i].size(); ++j) {
+            n = n->child((unsigned char)words[i][j]);
+        }
+        n->terminal = true;
+        n->freq = 100 + (int)(words.size() - i);
+    }
+    std::vector<unsigned char> out;
+    out.push_back(201);   // version
+    out.push_back(0);     // no bigrams
+    serializeGroup(out, &root);
+    return out;
+}
+
+// Returns the suggestions produced for `typed`, in ranked order.
+static std::vector<std::string> suggestionsFor(std::vector<unsigned char> &dict,
+                                               const std::string &typed) {
+    int *frequencies = new int[MAX_WORDS];
+    unsigned short *outputChars = new unsigned short[MAX_WORDS * MAX_WORD_LENGTH];
+    int *inputCodes = new int[MAX_WORD_LENGTH * MAX_ALTERNATIVES];
+    memset(frequencies, 0, sizeof(int) * MAX_WORDS);
+    memset(outputChars, 0, sizeof(unsigned short) * MAX_WORDS * MAX_WORD_LENGTH);
+    for (int i = 0; i < MAX_WORD_LENGTH * MAX_ALTERNATIVES; ++i) inputCodes[i] = -1;
+    for (size_t i = 0; i < typed.size(); ++i) {
+        inputCodes[i * MAX_ALTERNATIVES] = (unsigned char)typed[i];
+    }
+
+    unsigned char *buf = new unsigned char[dict.size()];
+    memcpy(buf, dict.data(), dict.size());
+    Dictionary *d = new Dictionary(buf, TYPED_LETTER_MULTIPLIER, FULL_WORD_MULTIPLIER,
+                                   (int)dict.size());
+    int count = d->getSuggestions(inputCodes, (int)typed.size(), outputChars, frequencies,
+                                  MAX_WORD_LENGTH, MAX_WORDS, MAX_ALTERNATIVES, -1, NULL, 0);
+    std::vector<std::string> result;
+    for (int j = 0; j < count; ++j) {
+        if (frequencies[j] < 1) break;
+        std::string w;
+        for (int k = 0; k < MAX_WORD_LENGTH; ++k) {
+            unsigned short c = outputChars[j * MAX_WORD_LENGTH + k];
+            if (c == 0) break;
+            w += (char)c;
+        }
+        if (!w.empty()) result.push_back(w);
+    }
+    delete d;
+    delete[] buf;
+    delete[] frequencies; delete[] outputChars; delete[] inputCodes;
+    return result;
+}
+
 static std::vector<unsigned char> craftRandom(int len) {
     std::vector<unsigned char> d((size_t)len);
     for (int i = 0; i < len; ++i) d[(size_t)i] = (unsigned char)(rnd() & 0xFF);
@@ -158,6 +264,58 @@ int main(int argc, char **argv) {
     int iterations = argc > 1 ? atoi(argv[1]) : 3000;
     if (argc > 2) sSeed = (uint64_t)strtoull(argv[2], NULL, 10) | 1;
 
+    int failures = 0;
+
+    // Functional check first: the bounds added for safety must not have broken
+    // ordinary lookups. A parser that returns nothing is "safe" and useless.
+    printf("== functional: suggestions from a well-formed dictionary ==\n");
+    {
+        std::vector<std::string> words;
+        words.push_back("keyboard"); words.push_back("key"); words.push_back("keys");
+        words.push_back("keyed");    words.push_back("the"); words.push_back("there");
+        words.push_back("their");    words.push_back("this");
+        std::vector<unsigned char> dict = buildDictionary(words);
+        printf("  dictionary: %d words, %d bytes\n", (int)words.size(), (int)dict.size());
+
+        struct { const char *typed; const char *expect; } cases[] = {
+            { "key",  "keyboard" },
+            { "the",  "there"    },
+            { "thi",  "this"     },
+        };
+        for (size_t c = 0; c < sizeof(cases) / sizeof(cases[0]); ++c) {
+            std::vector<std::string> got = suggestionsFor(dict, cases[c].typed);
+            bool found = false;
+            std::string joined;
+            for (size_t i = 0; i < got.size(); ++i) {
+                joined += got[i]; joined += " ";
+                if (got[i] == cases[c].expect) found = true;
+            }
+            printf("  typed \"%s\" -> [%s]%s\n", cases[c].typed, joined.c_str(),
+                   found ? "" : "   <-- MISSING EXPECTED WORD");
+            if (!found) failures++;
+        }
+
+        // Long words must still come back intact, right up to the width of one
+        // output slot (MAX_WORD_LENGTH - 1 characters plus a terminator).
+        // getWordsRec prunes at mInputLength * 3, so reaching depth 46 needs at
+        // least 16 typed characters - that is the parser's own rule, not a
+        // consequence of the bounds added here.
+        std::vector<std::string> longWords;
+        longWords.push_back(std::string(46, 'a'));
+        longWords.push_back(std::string(47, 'a'));
+        std::vector<unsigned char> longDict = buildDictionary(longWords);
+        std::vector<std::string> got = suggestionsFor(longDict, std::string(16, 'a'));
+        bool ok46 = false, ok47 = false;
+        for (size_t i = 0; i < got.size(); ++i) {
+            if (got[i].size() == 46) ok46 = true;
+            if (got[i].size() == 47) ok47 = true;
+        }
+        printf("  46-character word returned intact: %s\n", ok46 ? "yes" : "NO");
+        printf("  47-character word (slot limit) intact: %s\n", ok47 ? "yes" : "NO");
+        if (!ok46) failures++;
+        if (!ok47) failures++;
+    }
+
     printf("== crafted: deep trie chains ==\n");
     // 141 is the deepest getWordsRec can go for a 47-character input
     // (maxDepth = mInputLength * 3); 48 is the width of one output slot and
@@ -206,6 +364,10 @@ int main(int argc, char **argv) {
     }
     printf("  ok\n");
 
-    printf("\nALL PASSED - no out-of-bounds access detected\n");
+    if (failures > 0) {
+        printf("\n%d FUNCTIONAL CHECK(S) FAILED\n", failures);
+        return 1;
+    }
+    printf("\nALL PASSED - suggestions correct, no out-of-bounds access detected\n");
     return 0;
 }
