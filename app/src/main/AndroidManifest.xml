@@ -66,5 +66,11 @@
         <activity android:name="PrefScreenFeedback"
                 android:label="@string/pref_screen_feedback_title"
                 android:exported="false" />
+
+        <!-- Reached only through the explicit PendingIntents on the keyboard's
+             own notification; nothing outside the app may send to it. -->
+        <receiver android:name="NotificationReceiver"
+                android:exported="false" />
+
     </application>
 </manifest>

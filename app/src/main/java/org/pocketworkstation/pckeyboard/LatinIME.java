@@ -47,6 +47,7 @@ import android.preference.PreferenceActivity;
 import android.preference.PreferenceManager;
 import androidx.core.app.NotificationCompat;
 import androidx.core.app.NotificationManagerCompat;
+import android.text.InputType;
 import android.text.TextUtils;
 import android.util.DisplayMetrics;
 import android.util.Log;
@@ -198,6 +199,9 @@ public class LatinIME extends InputMethodService implements
     // Saved shift state when leaving alphabet mode, or when applying multitouch shift
     private int mSavedShiftState;
     private boolean mPasswordText;
+    // Set from EditorInfo.IME_FLAG_NO_PERSONALIZED_LEARNING: the editor has
+    // explicitly asked that what is typed here is not learned from.
+    private boolean mNoLearning;
     private boolean mVibrateOn;
     private int mVibrateLen;
     private boolean mSoundOn;
@@ -283,7 +287,9 @@ public class LatinIME extends InputMethodService implements
     private ArrayList<WordAlternatives> mWordHistory = new ArrayList<WordAlternatives>();
     
     private PluginManager mPluginManager;
-    private NotificationReceiver mNotificationReceiver;
+    // The receiver is declared in the manifest now; this only tracks whether
+    // the ongoing notification is currently posted.
+    private boolean mNotificationShown;
 
     private VoiceRecognitionTrigger mVoiceRecognitionTrigger;
 
@@ -459,6 +465,16 @@ public class LatinIME extends InputMethodService implements
         LatinIME.sKeyboardSettings.keyboardHeightPercent = (float) screenHeightPercent;
     }
 
+    /**
+     * POST_NOTIFICATIONS became a runtime permission in API 33. Without it the
+     * ongoing notification is silently dropped, so check before posting.
+     */
+    private boolean hasNotificationPermission() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return true;
+        return checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS)
+                == android.content.pm.PackageManager.PERMISSION_GRANTED;
+    }
+
     private void createNotificationChannel() {
         // Create the NotificationChannel, but only on API 26+ because
         // the NotificationChannel class is new and not in the support library
@@ -479,25 +495,33 @@ public class LatinIME extends InputMethodService implements
         String ns = Context.NOTIFICATION_SERVICE;
         NotificationManager mNotificationManager = (NotificationManager) getSystemService(ns);
 
-        if (visible && mNotificationReceiver == null) {
+        if (visible && !mNotificationShown) {
+            // From API 33 the notification is only delivered if the user has
+            // granted POST_NOTIFICATIONS; the settings screen asks for it when
+            // the preference is switched on.
+            if (!hasNotificationPermission()) {
+                Log.i(TAG, "notification permission not granted, skipping");
+                return;
+            }
             createNotificationChannel();
-            int icon = R.drawable.icon;
             CharSequence text = "Keyboard notification enabled.";
-            long when = System.currentTimeMillis();
 
-            // TODO: clean this up?
-            mNotificationReceiver = new NotificationReceiver(this);
-            final IntentFilter pFilter = new IntentFilter(NotificationReceiver.ACTION_SHOW);
-            pFilter.addAction(NotificationReceiver.ACTION_SETTINGS);
-            registerReceiver(mNotificationReceiver, pFilter);
-            
-            Intent notificationIntent = new Intent(NotificationReceiver.ACTION_SHOW);
-            PendingIntent contentIntent = PendingIntent.getBroadcast(getApplicationContext(), 1, notificationIntent, 0);
-            //PendingIntent contentIntent = PendingIntent.getActivity(this, 0, notificationIntent, 0);
+            // Explicit component and FLAG_IMMUTABLE. These used to be implicit
+            // (action only) and mutable, so anything that could get hold of the
+            // PendingIntent - a notification listener, for instance - could
+            // fill in the blanks and have the broadcast sent with this app's
+            // identity and permissions (HK-05).
+            Intent notificationIntent = new Intent(this, NotificationReceiver.class)
+                    .setAction(NotificationReceiver.ACTION_SHOW);
+            PendingIntent contentIntent = PendingIntent.getBroadcast(
+                    getApplicationContext(), 1, notificationIntent,
+                    PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
 
-            Intent configIntent = new Intent(NotificationReceiver.ACTION_SETTINGS);
-            PendingIntent configPendingIntent =
-                    PendingIntent.getBroadcast(getApplicationContext(), 2, configIntent, 0);
+            Intent configIntent = new Intent(this, NotificationReceiver.class)
+                    .setAction(NotificationReceiver.ACTION_SETTINGS);
+            PendingIntent configPendingIntent = PendingIntent.getBroadcast(
+                    getApplicationContext(), 2, configIntent,
+                    PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
 
             String title = "Show Hacker's Keyboard";
             String body = "Select this to open the keyboard. Disable in settings.";
@@ -533,11 +557,11 @@ public class LatinIME extends InputMethodService implements
 
             // notificationId is a unique int for each notification that you must define
             notificationManager.notify(NOTIFICATION_ONGOING_ID, mBuilder.build());
+            mNotificationShown = true;
 
-        } else if (mNotificationReceiver != null) {
+        } else if (!visible && mNotificationShown) {
             mNotificationManager.cancel(NOTIFICATION_ONGOING_ID);
-            unregisterReceiver(mNotificationReceiver);
-            mNotificationReceiver = null;
+            mNotificationShown = false;
         }
     }
     
@@ -653,10 +677,7 @@ public class LatinIME extends InputMethodService implements
         //}
         unregisterReceiver(mReceiver);
         unregisterReceiver(mPluginManager);
-        if (mNotificationReceiver != null) {
-        	unregisterReceiver(mNotificationReceiver);
-            mNotificationReceiver = null;
-        }
+        setNotification(false);
         super.onDestroy();
     }
 
@@ -786,6 +807,10 @@ public class LatinIME extends InputMethodService implements
         // now whether this is a password text field, because we need to know now (before
         // the switch statement) whether we want to enable the voice button.
         mPasswordText = false;
+        // Honoured for every learning path below. Apps set this on fields that
+        // are sensitive without being password-typed: one-time codes, recovery
+        // phrases, incognito input, medical and financial entry.
+        mNoLearning = isNoLearningField(attribute) || isPasswordField(attribute);
         int variation = attribute.inputType & EditorInfo.TYPE_MASK_VARIATION;
         if (variation == EditorInfo.TYPE_TEXT_VARIATION_PASSWORD
                 || variation == EditorInfo.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD
@@ -912,8 +937,43 @@ public class LatinIME extends InputMethodService implements
         checkReCorrectionOnStart();
     }
 
+    /**
+     * True if this is a password field of any class. mPasswordText only covers
+     * TYPE_CLASS_TEXT, so a numeric PIN entry is not counted there.
+     */
+    private static boolean isPasswordField(EditorInfo attribute) {
+        if (attribute == null) return false;
+        final int cls = attribute.inputType & EditorInfo.TYPE_MASK_CLASS;
+        final int variation = attribute.inputType & EditorInfo.TYPE_MASK_VARIATION;
+        if (cls == EditorInfo.TYPE_CLASS_TEXT) {
+            return variation == EditorInfo.TYPE_TEXT_VARIATION_PASSWORD
+                    || variation == EditorInfo.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD
+                    || variation == EditorInfo.TYPE_TEXT_VARIATION_WEB_PASSWORD;
+        }
+        if (cls == EditorInfo.TYPE_CLASS_NUMBER) {
+            return variation == InputType.TYPE_NUMBER_VARIATION_PASSWORD;
+        }
+        return false;
+    }
+
+    /** True if the editor asked not to be used for personalized learning. */
+    private static boolean isNoLearningField(EditorInfo attribute) {
+        if (attribute == null) return false;
+        return (attribute.imeOptions & EditorInfo.IME_FLAG_NO_PERSONALIZED_LEARNING) != 0;
+    }
+
+    /**
+     * Voice input hands the audio to whatever component handles
+     * RECOGNIZE_SPEECH, which normally means it leaves the device. It must not
+     * be offered for fields the app marked sensitive. This was a stub that
+     * always returned true, even though onStartInputView() computes the
+     * password state early specifically in order to answer it.
+     */
     private boolean shouldShowVoiceButton(EditorInfo attribute) {
-        // TODO Auto-generated method stub
+        if (attribute == null) return true;
+        if (isPasswordField(attribute)) return false;
+        if (isNoLearningField(attribute)) return false;
+        if ((attribute.inputType & EditorInfo.TYPE_TEXT_FLAG_NO_SUGGESTIONS) != 0) return false;
         return true;
     }
 
@@ -2808,6 +2868,9 @@ public class LatinIME extends InputMethodService implements
             int frequencyDelta, boolean addToBigramDictionary) {
         if (suggestion == null || suggestion.length() < 1)
             return;
+        // The editor asked not to be learned from, or this is a password field.
+        // Nothing typed here reaches the auto, bigram or user dictionary.
+        if (mNoLearning) return;
         // Only auto-add to dictionary if auto-correct is ON. Otherwise we'll be
         // adding words in situations where the user or application really
         // didn't
@@ -3323,6 +3386,9 @@ public class LatinIME extends InputMethodService implements
     }
     
     /* package */void promoteToUserDictionary(String word, int frequency) {
+        // Belt and braces: checkAddToDictionary() already refuses to learn in
+        // these fields, and the user dictionary is readable by other apps.
+        if (mNoLearning) return;
         if (mUserDictionary.isValidWord(word))
             return;
         mUserDictionary.addWord(word, frequency);

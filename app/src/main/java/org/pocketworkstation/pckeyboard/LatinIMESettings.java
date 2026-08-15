@@ -27,6 +27,7 @@ import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
 import android.content.pm.Signature;
 import android.content.res.Resources;
+import android.os.Build;
 import android.os.Bundle;
 import android.preference.CheckBoxPreference;
 import android.preference.ListPreference;
@@ -146,6 +147,13 @@ public class LatinIMESettings extends PreferenceScreenBase
 
     public void onSharedPreferenceChanged(SharedPreferences prefs, String key) {
         (new BackupManager(this)).dataChanged();
+        // The ongoing keyboard notification needs POST_NOTIFICATIONS from API 33
+        // on. Ask for it here, where there is an Activity to ask from - the IME
+        // service itself cannot request runtime permissions.
+        if (LatinIME.PREF_KEYBOARD_NOTIFICATION.equals(key)
+                && prefs.getBoolean(key, false)) {
+            requestNotificationPermission();
+        }
         // If turning on voice input, show dialog
         if (key.equals(VOICE_SETTINGS_KEY) && !mVoiceOn) {
             if (!prefs.getString(VOICE_SETTINGS_KEY, mVoiceModeOff)
@@ -156,6 +164,18 @@ public class LatinIMESettings extends PreferenceScreenBase
         mVoiceOn = !(prefs.getString(VOICE_SETTINGS_KEY, mVoiceModeOff).equals(mVoiceModeOff));
         updateVoiceModeSummary();
         updateSummaries();
+    }
+
+    private static final int REQUEST_POST_NOTIFICATIONS = 1;
+
+    private void requestNotificationPermission() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return;
+        if (checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS)
+                == PackageManager.PERMISSION_GRANTED) {
+            return;
+        }
+        requestPermissions(new String[] { android.Manifest.permission.POST_NOTIFICATIONS },
+                REQUEST_POST_NOTIFICATIONS);
     }
 
     static Map<Integer, String> INPUT_CLASSES = new HashMap<Integer, String>();
