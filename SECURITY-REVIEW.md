@@ -4,7 +4,8 @@
 **Commit reviewed** `9202d9d8b1d379f1a20edf08ed7e7149038c8e43` (2024-10-09, latest on `master`)
 **Application** `org.pocketworkstation.pckeyboard` v1.41.1 (versionCode 1041001)
 **Review date** 2026-08-15
-**Type** Static source review (manual, whole-codebase)
+**Type** Static source review (manual, whole-codebase), plus a follow-up remediation pass
+**Status** All findings remediated on branch `security-hardening`; see section 8
 **Codebase** 44 Java files (~14k LOC), 6 C/C++ files (~2k LOC), 1 prebuilt JAR, Gradle + CMake build
 
 ---
@@ -71,9 +72,14 @@ worth fixing even in a frozen codebase, the rest are ordinary hygiene.
 | HK-09 | Unverifiable 2011 prebuilt JAR in the build | Low | CWE-1357 |
 | HK-10 | Six implicitly exported activities | Low | CWE-926 |
 | HK-11 | Home-grown signing-certificate check (32-bit XOR fold) | Low | CWE-327, CWE-654 |
+| HK-15 | Exponential trie traversal in the dictionary parser (DoS) | **Medium** | CWE-407, CWE-834 |
 | HK-13 | No tapjacking protection on any view | Low | CWE-1021 |
 | HK-12 | Dormant keystroke-logging code | Info | — |
 | HK-14 | Dead contacts-harvesting code retained | Info | — |
+
+HK-15 was not found by the static review. It surfaced during remediation, when the
+dictionary parser was put under a fuzz harness; it is included here so the record is
+complete.
 
 Severity reflects impact × exploitability **for the platform this app actually targets** (API 26).
 Several Low findings would be non-issues on a modern target SDK; that is the point of HK-08.
@@ -219,6 +225,39 @@ crash-level denial of service is certain and code execution is plausible.
   none of these are currently set in `app/CMakeLists.txt`.
 * Highest-value next step: run a libFuzzer/AFL harness over `Dictionary::getSuggestions` and
   `Dictionary::getBigrams` with ASan. Every issue above should surface within minutes.
+
+---
+
+### HK-15 — Exponential trie traversal in the dictionary parser
+
+**Severity** Medium **CWE** CWE-407 (inefficient algorithmic complexity), CWE-834 (excessive iteration)
+**Location** `app/src/main/cpp/dictionary.cpp` — `getWordsRec`, `isValidWordRec`
+
+Found during remediation rather than by the static review: a fuzz harness over
+`Dictionary::getSuggestions` produced a dictionary that held the parser at 100% CPU for
+more than ten minutes before the run was killed.
+
+`getWordsRec` recurses into `childrenAddress` for every child of every node it visits.
+Two properties of the format make that unbounded in practice:
+
+* a node group declares its child count in a single byte read from the file, so it may
+  claim up to 255 children;
+* child addresses are absolute offsets read from the file and may point **backwards**, so
+  the "trie" is really an arbitrary graph and can contain cycles.
+
+Depth is bounded (by `maxDepth`, and after HK-01 by the buffer sizes), but the *breadth*
+is not, and with cycles the same nodes are revisited along every path. The work is
+therefore exponential in the depth limit rather than linear in the dictionary size.
+
+**Impact.** Suggestion lookup runs on every keystroke. A dictionary that triggers this
+makes the keyboard stop responding for as long as the user keeps typing — an
+application-not-responding condition in the one component the user cannot switch away
+from without first getting a keyboard. Denial of service only; no memory is corrupted.
+Combined with HK-02 it is reachable from any installed app.
+
+**Recommendation.** Bound the total number of nodes one lookup may visit, independently of
+depth. A legitimate lookup visits a few thousand; a budget several orders of magnitude
+above that still aborts the pathological case in microseconds.
 
 ---
 
@@ -773,7 +812,48 @@ dormant logger), HK-14 (delete the dead contacts reader).
 
 ---
 
-## 7. Methodology, scope and limitations
+## 7. Remediation
+
+All findings have been addressed on the `security-hardening` branch of a working clone,
+alongside a platform modernisation pass. The two are related: several findings were
+platform mitigations the app had opted out of by targeting API 26, and raising the target
+fixed them without any code change.
+
+| ID | Status | How |
+|----|--------|-----|
+| HK-01 | Fixed | Every read and write in the parser bounded; verified under ASan/UBSan |
+| HK-02 | Fixed | Same-signature packs auto-trusted; all others inert until approved in Settings, with the approval bound to the signing certificate |
+| HK-03 | Fixed | `fullBackupContent` + `dataExtractionRules` exclude the learned-word databases; `restoreAnyVersion` dropped |
+| HK-04 | Fixed | `IME_FLAG_NO_PERSONALIZED_LEARNING` honoured on every learning path, established in `onStartInput` |
+| HK-05 | Fixed | Explicit-component, `FLAG_IMMUTABLE` PendingIntents |
+| HK-06 | Fixed | Receiver moved to the manifest with `exported="false"` |
+| HK-07 | Fixed | `shouldShowVoiceButton` implemented; refuses password, no-learning and no-suggestion fields |
+| HK-08 | Fixed | AGP 8.10 / Gradle 8.11, compileSdk+targetSdk 36, minSdk 21, AndroidX, mavenCentral, R8, NDK r28 with 16 KB page alignment |
+| HK-09 | Partial | SHA-256 and provenance recorded, wildcard `fileTree` replaced with an explicit reference; still a prebuilt binary |
+| HK-10 | Fixed | Explicit `android:exported`; preference screens launched by component and no longer exported |
+| HK-11 | Fixed | XOR fold replaced with the real certificate fingerprint |
+| HK-12 | Fixed | Logger and its file plumbing deleted |
+| HK-13 | Partial | Settings screens filter obscured touches; deliberately not applied to the keyboard view, where screen-filter apps legitimately overlay it |
+| HK-14 | Fixed | `ContactsDictionary` deleted |
+| HK-15 | Fixed | Per-lookup node-visit budget |
+
+**Verification.** A host-side harness (`tools/dict-fuzz`) compiles the parser for the
+build machine and runs it under AddressSanitizer and UndefinedBehaviorSanitizer. Against
+the unpatched parser it reproduces HK-01 in seconds — `index 128 out of bounds for type
+'short unsigned int [128]'` and a heap-buffer-overflow read in `getFreq` — and hangs on
+HK-15. Against the patched parser the same corpus completes cleanly in about four
+seconds, and functional checks confirm suggestions are still returned correctly for
+ordinary input and that words up to the format's 47-character limit survive intact.
+
+Debug and release APKs build against API 36; the release build was inspected to confirm
+R8 preserved the JNI entry point and every XML-inflated class.
+
+**Not verified.** Nothing has been run on a device or emulator. See the remediation
+branch's `SECURITY-FIXES.md` for the full list of what that leaves open.
+
+---
+
+## 8. Methodology, scope and limitations
 
 **Method.** Manual static review of the complete source tree at commit `9202d9d`: the Android
 manifest, Gradle and CMake build configuration, all 44 Java sources, all 6 native sources, the
@@ -782,12 +862,18 @@ repository history and CI configuration. Reasoning about the native findings was
 the data flow from `PluginManager` → `BinaryDictionary` → JNI bridge → `Dictionary` and checking
 each buffer write against its allocation site.
 
-**Not performed.** This review did not build the project, run it on a device or emulator, fuzz the
-dictionary parser, develop or validate any exploit, reverse-engineer the released Play Store APK,
-review the separate dictionary-pack APKs published by the author, or assess the project's wiki and
-distribution channels.
+**Not performed during the review itself.** The review did not build the project, run it on a device
+or emulator, fuzz the dictionary parser, develop or validate any exploit, reverse-engineer the
+released Play Store APK, review the separate dictionary-pack APKs published by the author, or assess
+the project's wiki and distribution channels.
 
-**Consequences for the findings.** The HK-01 memory-safety issues are established from the code with
+The remediation pass that followed (section 7) did build the project and did fuzz the parser, which
+confirmed HK-01 directly and surfaced HK-15. Everything else in this report still rests on reading
+the code, and nothing has been run on a device.
+
+**Consequences for the findings.** The HK-01 memory-safety issues were established from the code and
+have since been reproduced under AddressSanitizer: the out-of-bounds write past `mWord` and the
+out-of-bounds read in `getFreq` both fire within seconds of fuzzing. They were originally stated with
 high confidence — the missing bounds checks are unambiguous. The step from "memory corruption" to
 "code execution" is reasoned, not demonstrated; a crash-level denial of service is certain, and
 exploitability would need a PoC against a real device to state definitively. Everything else in this
