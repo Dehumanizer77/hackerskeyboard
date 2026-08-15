@@ -162,6 +162,26 @@ public class LatinIMESettings extends PreferenceScreenBase
 
     private static final int REQUEST_POST_NOTIFICATIONS = 1;
 
+    @Override
+    public void onRequestPermissionsResult(int requestCode, String[] permissions,
+            int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (requestCode != REQUEST_POST_NOTIFICATIONS) return;
+        boolean granted = grantResults.length > 0
+                && grantResults[0] == PackageManager.PERMISSION_GRANTED;
+        LatinIME ime = LatinIME.sInstance;
+        if (granted) {
+            // Post the notification now rather than waiting for the preference
+            // to be toggled a second time.
+            if (ime != null) ime.updateKeyboardNotification();
+        } else {
+            // Nothing will be shown, so do not leave the switch claiming it is on.
+            getPreferenceManager().getSharedPreferences().edit()
+                    .putBoolean(LatinIME.PREF_KEYBOARD_NOTIFICATION, false).apply();
+            updateSummaries();
+        }
+    }
+
     private void requestNotificationPermission() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return;
         if (checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS)

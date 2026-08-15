@@ -36,8 +36,10 @@ public class PluginManager extends BroadcastReceiver {
         SOFTKEYBOARD_LANG_MAP.put("dk", "da");
     }
 
+    // Mutated from the IME thread (discovery on package changes) and read from
+    // the settings screen, so both maps are synchronized.
     private static Map<String, DictPluginSpec> mPluginDicts =
-            new HashMap<String, DictPluginSpec>();
+            java.util.Collections.synchronizedMap(new HashMap<String, DictPluginSpec>());
 
     /**
      * Every dictionary pack found on the device, trusted or not, as
@@ -46,7 +48,7 @@ public class PluginManager extends BroadcastReceiver {
      * unless DictPackTrust says so.
      */
     private static Map<String, String> mDiscoveredPacks =
-            new java.util.LinkedHashMap<String, String>();
+            java.util.Collections.synchronizedMap(new java.util.LinkedHashMap<String, String>());
 
     PluginManager(LatinIME ime) {
         super();
@@ -55,7 +57,9 @@ public class PluginManager extends BroadcastReceiver {
 
     /** Package name -> language for all dictionary packs seen on the device. */
     static Map<String, String> getDiscoveredPacks() {
-        return new java.util.LinkedHashMap<String, String>(mDiscoveredPacks);
+        synchronized (mDiscoveredPacks) {
+            return new java.util.LinkedHashMap<String, String>(mDiscoveredPacks);
+        }
     }
 
     static interface DictPluginSpec {

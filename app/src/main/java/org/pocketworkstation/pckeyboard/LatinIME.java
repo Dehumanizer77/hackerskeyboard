@@ -474,6 +474,18 @@ public class LatinIME extends InputMethodService implements
                 == android.content.pm.PackageManager.PERMISSION_GRANTED;
     }
 
+    /**
+     * Re-applies the "show keyboard" notification preference. Called from the
+     * settings screen once POST_NOTIFICATIONS has been granted, so the
+     * notification appears without the user toggling the preference twice.
+     */
+    /* package */ void updateKeyboardNotification() {
+        SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(this);
+        mKeyboardNotification = prefs.getBoolean(PREF_KEYBOARD_NOTIFICATION,
+                mResources.getBoolean(R.bool.default_keyboard_notification));
+        setNotification(mKeyboardNotification);
+    }
+
     private void createNotificationChannel() {
         // Create the NotificationChannel, but only on API 26+ because
         // the NotificationChannel class is new and not in the support library
@@ -771,6 +783,17 @@ public class LatinIME extends InputMethodService implements
     }
     
     @Override
+    public void onStartInput(EditorInfo attribute, boolean restarting) {
+        super.onStartInput(attribute, restarting);
+        // onStartInputView() can return early (in landscape it is called before
+        // the input view exists), which would leave these holding the previous
+        // field's answer. They decide whether typing here is learned from, so
+        // they are established here, before anything else can run.
+        mPasswordText = isPasswordField(attribute);
+        mNoLearning = isNoLearningField(attribute) || mPasswordText;
+    }
+
+    @Override
     public void onStartInputView(EditorInfo attribute, boolean restarting) {
         sKeyboardSettings.editorPackageName = attribute.packageName;
         sKeyboardSettings.editorFieldName = attribute.fieldName;
@@ -798,9 +821,9 @@ public class LatinIME extends InputMethodService implements
         // now whether this is a password text field, because we need to know now (before
         // the switch statement) whether we want to enable the voice button.
         mPasswordText = false;
-        // Honoured for every learning path below. Apps set this on fields that
-        // are sensitive without being password-typed: one-time codes, recovery
-        // phrases, incognito input, medical and financial entry.
+        // Honoured on every learning path below. Apps set NO_PERSONALIZED_LEARNING
+        // on fields that are sensitive without being password-typed: one-time
+        // codes, recovery phrases, incognito input, medical and financial entry.
         mNoLearning = isNoLearningField(attribute) || isPasswordField(attribute);
         int variation = attribute.inputType & EditorInfo.TYPE_MASK_VARIATION;
         if (variation == EditorInfo.TYPE_TEXT_VARIATION_PASSWORD
