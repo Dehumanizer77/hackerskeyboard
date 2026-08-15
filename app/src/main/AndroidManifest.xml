@@ -1,9 +1,12 @@
-<manifest xmlns:android="http://schemas.android.com/apk/res/android"
-        package="org.pocketworkstation.pckeyboard">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <uses-permission android:name="android.permission.VIBRATE"/>
     <uses-permission android:name="android.permission.READ_USER_DICTIONARY" />
     <uses-permission android:name="android.permission.WRITE_USER_DICTIONARY" />
+    <!-- Only for the optional "show keyboard" ongoing notification; requested at
+         runtime from the settings screen when the user enables that preference. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
     <uses-feature android:name="android.hardware.microphone" android:required="false" />
     <uses-feature android:name="android.hardware.faketouch" android:required="false" />
     <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
@@ -11,13 +14,15 @@
     <application android:label="@string/english_ime_name"
             android:allowBackup="true"
             android:backupAgent="LatinIMEBackupAgent"
-            android:restoreAnyVersion="true"
+            android:fullBackupContent="@xml/backup_rules"
+            android:dataExtractionRules="@xml/data_extraction_rules"
             android:hardwareAccelerated="false"
             android:killAfterRestore="false"
             android:icon="@drawable/icon">
 
         <service android:name="LatinIME"
                 android:label="@string/english_ime_name"
+                android:exported="true"
                 android:permission="android.permission.BIND_INPUT_METHOD">
             <intent-filter>
                 <action android:name="android.view.InputMethod" />
@@ -25,55 +30,37 @@
             <meta-data android:name="android.view.im" android:resource="@xml/method" />
         </service>
 
-        <activity android:name="Main" android:label="Hacker's Keyboard">
+        <activity android:name="Main"
+                android:label="Hacker's Keyboard"
+                android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
         </activity>
 
-        <activity android:name="LatinIMESettings" android:label="@string/english_ime_settings">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN"/>
-                <action android:name="org.pocketworkstation.pckeyboard.SETTINGS"/>
-                <category android:name="android.intent.category.DEFAULT" />
-            </intent-filter>
-        </activity>
+        <!-- Declared as the IME's settingsActivity in res/xml/method.xml, so the
+             system Settings app launches it by explicit component. It keeps no
+             intent filter: there is no action another app needs to resolve. -->
+        <activity android:name="LatinIMESettings"
+                android:label="@string/english_ime_settings"
+                android:exported="true" />
 
+        <!-- Reached only from LatinIMESettings/Main, by explicit component. -->
         <activity android:name="InputLanguageSelection"
-                android:label="@string/language_selection_title">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN"/>
-                <action android:name="org.pocketworkstation.pckeyboard.INPUT_LANGUAGE_SELECTION"/>
-                <category android:name="android.intent.category.DEFAULT" />
-            </intent-filter>
-        </activity>
+                android:label="@string/language_selection_title"
+                android:exported="false" />
 
         <activity android:name="PrefScreenActions"
-                android:label="@string/pref_screen_actions_title">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN"/>
-                <action android:name="org.pocketworkstation.pckeyboard.PREFS_ACTIONS"/>
-                <category android:name="android.intent.category.DEFAULT" />
-            </intent-filter>
-        </activity>
-            
+                android:label="@string/pref_screen_actions_title"
+                android:exported="false" />
+
         <activity android:name="PrefScreenView"
-                android:label="@string/pref_screen_actions_title">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN"/>
-                <action android:name="org.pocketworkstation.pckeyboard.PREFS_VIEW"/>
-                <category android:name="android.intent.category.DEFAULT" />
-            </intent-filter>
-        </activity>
+                android:label="@string/pref_screen_actions_title"
+                android:exported="false" />
 
         <activity android:name="PrefScreenFeedback"
-                android:label="@string/pref_screen_feedback_title">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN"/>
-                <action android:name="org.pocketworkstation.pckeyboard.PREFS_FEEDBACK"/>
-                <category android:name="android.intent.category.DEFAULT" />
-            </intent-filter>
-        </activity>
-</application>
+                android:label="@string/pref_screen_feedback_title"
+                android:exported="false" />
+    </application>
 </manifest>

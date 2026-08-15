@@ -1,1 +1,21 @@
+pluginManagement {
+    repositories {
+        google()
+        mavenCentral()
+        gradlePluginPortal()
+    }
+}
+
+// jcenter() is frozen read-only and receives no security updates (HK-08); all
+// dependencies now resolve from google() and mavenCentral() only, and modules
+// may not declare their own repositories.
+dependencyResolutionManagement {
+    repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+    repositories {
+        google()
+        mavenCentral()
+    }
+}
+
+rootProject.name = 'HackersKeyboard'
 include ':app'
