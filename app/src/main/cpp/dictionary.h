@@ -33,6 +33,23 @@ namespace latinime {
 #define FLAG_BIGRAM_CONTINUED 0x80
 #define FLAG_BIGRAM_FREQ 0x7F
 
+// Size of the internal word-composition buffer.
+#define MAX_WORD_BUFFER 128
+
+// The trie structure and the bigram continuation bits come from the dictionary
+// file, which is not trustworthy: a dictionary can be supplied by any installed
+// package (see SECURITY-REVIEW.md, HK-02). Every walk over that structure is
+// therefore bounded by an iteration count as well as by the buffer length.
+#define MAX_BIGRAM_ENTRIES 1024
+#define MAX_TRAVERSE_STEPS 4096
+
+// Total number of trie nodes a single lookup may visit. Child addresses are
+// read from the file and may point backwards, so the "tree" can contain cycles
+// and a node group can declare up to 255 children: without a budget the search
+// is exponential in the depth and a crafted dictionary freezes the keyboard on
+// every keystroke. A real lookup visits a few thousand nodes at most.
+#define MAX_NODE_VISITS 200000
+
 class Dictionary {
 public:
     Dictionary(void *dict, int typedLetterMultipler, int fullWordMultiplier, int dictSize);
@@ -56,11 +73,20 @@ private:
     int getFreq(int *pos);
     int getBigramFreq(int *pos);
     void searchForTerminalNode(int address, int frequency);
+    void skipBigrams(int *pos);
 
-    bool getFirstBitOfByte(int *pos) { return (mDict[*pos] & 0x80) > 0; }
-    bool getSecondBitOfByte(int *pos) { return (mDict[*pos] & 0x40) > 0; }
-    bool getTerminal(int *pos) { return (mDict[*pos] & FLAG_TERMINAL_MASK) > 0; }
-    int getCount(int *pos) { return mDict[(*pos)++] & 0xFF; }
+    // Every read of the dictionary buffer goes through these. inRange() checks
+    // the whole span that is about to be touched, not just the start offset:
+    // the original code validated *pos and then read *pos+1 and *pos+2.
+    bool inRange(int pos, int len) const {
+        return pos >= 0 && len >= 0 && len <= mDictSize && pos <= mDictSize - len;
+    }
+    unsigned char byteAt(int pos) const { return inRange(pos, 1) ? mDict[pos] : 0; }
+
+    bool getFirstBitOfByte(int *pos) { return (byteAt(*pos) & 0x80) > 0; }
+    bool getSecondBitOfByte(int *pos) { return (byteAt(*pos) & 0x40) > 0; }
+    bool getTerminal(int *pos) { return (byteAt(*pos) & FLAG_TERMINAL_MASK) > 0; }
+    int getCount(int *pos) { int p = (*pos)++; return byteAt(p) & 0xFF; }
     unsigned short getChar(int *pos);
     int wideStrLen(unsigned short *str);
 
@@ -87,7 +113,7 @@ private:
     int *mInputCodes;
     int mInputLength;
     int mMaxAlternatives;
-    unsigned short mWord[128];
+    unsigned short mWord[MAX_WORD_BUFFER];
     int mSkipPos;
     int mMaxEditDistance;
 
@@ -98,6 +124,8 @@ private:
     int mNextLettersSize;
     int mVersion;
     int mBigram;
+    // Work budget for one lookup; see MAX_NODE_VISITS.
+    int mNodeVisits;
 };
 
 // ----------------------------------------------------------------------------
