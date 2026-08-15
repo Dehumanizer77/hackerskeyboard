@@ -30,13 +30,12 @@ import android.content.res.Configuration;
 import android.content.res.Resources;
 import android.os.Bundle;
 import android.preference.CheckBoxPreference;
-import android.preference.PreferenceActivity;
 import android.preference.PreferenceGroup;
 import android.preference.PreferenceManager;
 import android.text.TextUtils;
 import android.util.Log;
 
-public class InputLanguageSelection extends PreferenceActivity {
+public class InputLanguageSelection extends PreferenceScreenBase {
     private static final String TAG = "PCKeyboardILS";
     private ArrayList<Loc> mAvailableLanguages = new ArrayList<Loc>();
     private static final String[] BLACKLIST_LANGUAGES = {

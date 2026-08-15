@@ -20,9 +20,8 @@ import android.app.backup.BackupManager;
 import android.content.SharedPreferences;
 import android.os.Bundle;
 import android.preference.ListPreference;
-import android.preference.PreferenceActivity;
 
-public class PrefScreenFeedback extends PreferenceActivity
+public class PrefScreenFeedback extends PreferenceScreenBase
         implements SharedPreferences.OnSharedPreferenceChangeListener {
 
     @Override

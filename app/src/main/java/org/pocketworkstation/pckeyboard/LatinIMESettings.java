@@ -31,13 +31,12 @@ import android.os.Bundle;
 import android.preference.CheckBoxPreference;
 import android.preference.ListPreference;
 import android.preference.Preference;
-import android.preference.PreferenceActivity;
 import android.preference.PreferenceGroup;
 import android.text.AutoText;
 import android.text.InputType;
 import android.util.Log;
 
-public class LatinIMESettings extends PreferenceActivity
+public class LatinIMESettings extends PreferenceScreenBase
         implements SharedPreferences.OnSharedPreferenceChangeListener,
         DialogInterface.OnDismissListener {
 

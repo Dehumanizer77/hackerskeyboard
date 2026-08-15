@@ -21,9 +21,8 @@ import android.content.SharedPreferences;
 import android.os.Bundle;
 import android.preference.ListPreference;
 import android.preference.Preference;
-import android.preference.PreferenceActivity;
 
-public class PrefScreenView extends PreferenceActivity
+public class PrefScreenView extends PreferenceScreenBase
         implements SharedPreferences.OnSharedPreferenceChangeListener {
 
     private ListPreference mRenderModePreference;

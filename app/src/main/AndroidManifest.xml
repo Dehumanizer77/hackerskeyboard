@@ -59,6 +59,10 @@
                 android:label="@string/pref_screen_actions_title"
                 android:exported="false" />
 
+        <activity android:name="PrefScreenDictPacks"
+                android:label="@string/dict_packs_title"
+                android:exported="false" />
+
         <activity android:name="PrefScreenFeedback"
                 android:label="@string/pref_screen_feedback_title"
                 android:exported="false" />

@@ -104,6 +104,13 @@
             />
 
     <PreferenceScreen
+            android:title="@string/dict_packs_title"
+            android:summary="@string/dict_packs_summary">
+        <intent android:targetPackage="org.pocketworkstation.pckeyboard"
+                android:targetClass="org.pocketworkstation.pckeyboard.PrefScreenDictPacks"/>
+    </PreferenceScreen>
+
+    <PreferenceScreen
             android:title="@string/language_selection_title"
             android:summary="@string/language_selection_summary">
         <intent android:targetPackage="org.pocketworkstation.pckeyboard"
