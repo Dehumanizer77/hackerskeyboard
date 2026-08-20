@@ -16,21 +16,21 @@ Two things happened here, and they are separable:
 
 | ID | Finding | Severity | Status | Commit |
 |----|---------|----------|--------|--------|
-| HK-01 | Memory-unsafe binary dictionary parser | High | Fixed, verified under ASan/UBSan | `af5bea8` |
-| HK-02 | Any installed app can supply the dictionary | High | Fixed — trust required | `db16aef` |
-| HK-03 | Learned text eligible for cloud/`adb` backup | Medium | Fixed — backup rules | `7168904` |
-| HK-04 | `IME_FLAG_NO_PERSONALIZED_LEARNING` ignored | Medium | Fixed | `25768d8`, `a954f32` |
-| HK-05 | Mutable implicit `PendingIntent`s | Medium | Fixed | `25768d8` |
-| HK-06 | Unprotected exported receiver | Low | Fixed — manifest, not exported | `25768d8` |
-| HK-07 | Voice input offered in password fields | Medium | Fixed | `25768d8` |
-| HK-08 | Outdated target SDK and dependencies | Low | Fixed — API 36 | `7168904` |
-| HK-09 | Unverifiable prebuilt JAR | Low | Documented, pinned; still prebuilt | `07935d9` |
-| HK-10 | Implicitly exported activities | Low | Fixed | `7168904` |
-| HK-11 | Home-grown signing-certificate check | Low | Fixed — real fingerprint | `07935d9` |
-| HK-12 | Dormant keystroke logger | Info | Removed | `25768d8` |
-| HK-13 | No tapjacking protection | Low | Fixed for settings screens (see note) | `db16aef` |
-| HK-14 | Dead contacts-harvesting code | Info | Removed | `07935d9` |
-| **HK-15** | **Exponential trie traversal (DoS)** | **Medium** | **Fixed** | `af5bea8` |
+| HK-01 | Memory-unsafe binary dictionary parser | High | Fixed, verified under ASan/UBSan | `c4dc907` |
+| HK-02 | Any installed app can supply the dictionary | High | Fixed — trust required | `24ce894` |
+| HK-03 | Learned text eligible for cloud/`adb` backup | Medium | Fixed — backup rules | `45de62a` |
+| HK-04 | `IME_FLAG_NO_PERSONALIZED_LEARNING` ignored | Medium | Fixed | `f7bd5ac`, `e539df1` |
+| HK-05 | Mutable implicit `PendingIntent`s | Medium | Fixed | `f7bd5ac` |
+| HK-06 | Unprotected exported receiver | Low | Fixed — manifest, not exported | `f7bd5ac` |
+| HK-07 | Voice input offered in password fields | Medium | Fixed | `f7bd5ac` |
+| HK-08 | Outdated target SDK and dependencies | Low | Fixed — API 36 | `45de62a` |
+| HK-09 | Unverifiable prebuilt JAR | Low | Documented, pinned; still prebuilt | `bc4f021` |
+| HK-10 | Implicitly exported activities | Low | Fixed | `45de62a` |
+| HK-11 | Home-grown signing-certificate check | Low | Fixed — real fingerprint | `bc4f021` |
+| HK-12 | Dormant keystroke logger | Info | Removed | `f7bd5ac` |
+| HK-13 | No tapjacking protection | Low | Fixed for settings screens (see note) | `24ce894` |
+| HK-14 | Dead contacts-harvesting code | Info | Removed | `bc4f021` |
+| **HK-15** | **Exponential trie traversal (DoS)** | **Medium** | **Fixed** | `c4dc907` |
 
 HK-15 was not in the original review. It was found by the fuzz harness added
 here: see below.
