@@ -638,13 +638,16 @@ public class KeyboardSwitcher implements
             }
             mInputView.setExtensionLayoutResId(THEMES[newLayout]);
             mInputView.setOnKeyboardActionListener(mInputMethodService);
+            // The theme layouts declare a bottom gap via keyboard_bottom_padding;
+            // the setPadding() below has always thrown it away. Keep it, and add
+            // it on top of whatever the system reserves, so the key rows are not
+            // flush against the navigation bar.
+            final int themeBottomGap = mInputView.getPaddingBottom();
             mInputView.setPadding(0, 0, 0, 0);
-            // The line above discards the theme's keyboard_bottom_padding, so the
-            // key rows sit flush with the bottom of the IME window. That window is
-            // laid out edge to edge now (API 35+), so the navigation bar would be
-            // drawn straight over the bottom row. Reserve exactly the inset the
-            // system reports - zero where there is nothing to avoid.
-            WindowInsetsHelper.padForBottomSystemBars(mInputView);
+            // The IME window is laid out edge to edge (API 35+), so without this
+            // the navigation bar and the IME-switcher controls are drawn over the
+            // bottom key row. Zero where there is nothing to avoid.
+            WindowInsetsHelper.padForBottomSystemBars(mInputView, themeBottomGap);
             mLayoutId = newLayout;
         }
         mInputMethodService.mHandler.post(new Runnable() {
