@@ -36,19 +36,37 @@ public class PluginManager extends BroadcastReceiver {
         SOFTKEYBOARD_LANG_MAP.put("dk", "da");
     }
 
+    // Mutated from the IME thread (discovery on package changes) and read from
+    // the settings screen, so both maps are synchronized.
     private static Map<String, DictPluginSpec> mPluginDicts =
-            new HashMap<String, DictPluginSpec>();
+            java.util.Collections.synchronizedMap(new HashMap<String, DictPluginSpec>());
+
+    /**
+     * Every dictionary pack found on the device, trusted or not, as
+     * package name -> language. Populated during discovery so the settings
+     * screen can offer the untrusted ones for approval. Nothing here is loaded
+     * unless DictPackTrust says so.
+     */
+    private static Map<String, String> mDiscoveredPacks =
+            java.util.Collections.synchronizedMap(new java.util.LinkedHashMap<String, String>());
 
     PluginManager(LatinIME ime) {
         super();
         mIME = ime;
     }
 
+    /** Package name -> language for all dictionary packs seen on the device. */
+    static Map<String, String> getDiscoveredPacks() {
+        synchronized (mDiscoveredPacks) {
+            return new java.util.LinkedHashMap<String, String>(mDiscoveredPacks);
+        }
+    }
+
     static interface DictPluginSpec {
         BinaryDictionary getDict(Context context);
     }
 
-    static void getSoftKeyboardDictionaries(PackageManager packageManager) {
+    static void getSoftKeyboardDictionaries(Context context, PackageManager packageManager) {
         Intent dictIntent = new Intent(SOFTKEYBOARD_INTENT_DICT);
         List<ResolveInfo> dictPacks = packageManager.queryBroadcastReceivers(
                 dictIntent, PackageManager.GET_META_DATA);
@@ -104,6 +122,13 @@ public class PluginManager extends BroadcastReceiver {
                 }
 
                 if ((assetName == null && resId == 0) || lang == null) continue;
+                mDiscoveredPacks.put(pkgName, lang);
+                if (!DictPackTrust.isTrusted(context, pkgName)) {
+                    Log.i(TAG, "Ignoring unapproved dictionary pack " + pkgName
+                            + " (lang=" + lang + "); approve it in Settings to use it");
+                    success = true; // discovered correctly, just not trusted
+                    continue;
+                }
                 DictPluginSpec spec = new DictPluginSpecSoftKeyboard(pkgName, assetName, resId);
                 mPluginDicts.put(lang, spec);
                 Log.i(TAG, "Found plugin dictionary: lang=" + lang + ", pkg=" + pkgName);
@@ -118,7 +143,7 @@ public class PluginManager extends BroadcastReceiver {
         }
     }
 
-    static void getHKDictionaries(PackageManager packageManager) {
+    static void getHKDictionaries(Context context, PackageManager packageManager) {
         Intent dictIntent = new Intent(HK_INTENT_DICT);
         List<ResolveInfo> dictPacks = packageManager.queryIntentActivities(dictIntent, 0);
         for (ResolveInfo ri : dictPacks) {
@@ -131,6 +156,13 @@ public class PluginManager extends BroadcastReceiver {
                 int langId = res.getIdentifier("dict_language", "string", pkgName);
                 if (langId == 0) continue;
                 String lang = res.getString(langId);
+                mDiscoveredPacks.put(pkgName, lang);
+                if (!DictPackTrust.isTrusted(context, pkgName)) {
+                    Log.i(TAG, "Ignoring unapproved dictionary pack " + pkgName
+                            + " (lang=" + lang + "); approve it in Settings to use it");
+                    success = true; // discovered correctly, just not trusted
+                    continue;
+                }
                 int[] rawIds = null;
 
                 // Try single-file version first
@@ -184,6 +216,12 @@ public class PluginManager extends BroadcastReceiver {
         abstract InputStream[] getStreams(Resources res);
 
         public BinaryDictionary getDict(Context context) {
+            // Re-checked at load time, not just at discovery time: approval can
+            // be withdrawn, and the package can be replaced, in between.
+            if (!DictPackTrust.isTrusted(context, mPackageName)) {
+                Log.w(TAG, "refusing to load dictionary from untrusted " + mPackageName);
+                return null;
+            }
             Resources res = getResources(context);
             if (res == null) return null;
 
@@ -271,13 +309,15 @@ public class PluginManager extends BroadcastReceiver {
 
     static void getPluginDictionaries(Context context) {
         mPluginDicts.clear();
+        mDiscoveredPacks.clear();
         PackageManager packageManager = context.getPackageManager();
-        getSoftKeyboardDictionaries(packageManager);
-        getHKDictionaries(packageManager);
+        getSoftKeyboardDictionaries(context, packageManager);
+        getHKDictionaries(context, packageManager);
     }
 
     static BinaryDictionary getDictionary(Context context, String lang) {
         //Log.i(TAG, "Looking for plugin dictionary for lang=" + lang);
+        if (lang == null || lang.length() < 2) return null;
         DictPluginSpec spec = mPluginDicts.get(lang);
         if (spec == null) spec = mPluginDicts.get(lang.substring(0, 2));
         if (spec == null) {

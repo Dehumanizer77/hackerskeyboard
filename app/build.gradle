@@ -1,46 +1,81 @@
-apply plugin: 'com.android.application'
+plugins {
+    id 'com.android.application'
+}
 
 android {
-    compileSdkVersion 26
+    namespace 'org.pocketworkstation.pckeyboard'
+    compileSdk 36
+    // r28+ links native libraries with 16 KB-aligned segments by default, which
+    // Android 15+ devices with 16 KB pages require. AGP's default NDK (r27) still
+    // emits 4 KB alignment, so this is pinned rather than left implicit.
+    ndkVersion '28.2.13676358'
+
     defaultConfig {
         applicationId 'org.pocketworkstation.pckeyboard'
-        minSdkVersion 14
-        targetSdkVersion 26
+        // AndroidX and the modern toolchain require API 21 as a floor. Everything
+        // above that is still supported; nothing in this app needs a higher minimum.
+        minSdk 21
+        targetSdk 36
         versionCode 1041001
         versionName "v1.41.1"
-        testInstrumentationRunner "android.support.test.runner.AndroidJUnitRunner"
+
         externalNativeBuild {
             cmake {
-                cppFlags ""
+                // Hardening for the dictionary parser (HK-01). _FORTIFY_SOURCE is
+                // only effective with optimisation, which release builds enable.
+                cppFlags '-fstack-protector-strong', '-D_FORTIFY_SOURCE=2', '-Wall'
             }
         }
     }
+
     buildTypes {
         release {
+            minifyEnabled true
+            shrinkResources true
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'),
+                    'proguard-rules.pro'
+        }
+        debug {
+            // Keep the debug variant unshrunk so stack traces stay readable.
             minifyEnabled false
-            proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
         }
     }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
     externalNativeBuild {
         cmake {
-            path "CMakeLists.txt"
+            path 'CMakeLists.txt'
+            version '3.22.1'
         }
     }
-    productFlavors {
+
+    packaging {
+        jniLibs {
+            // Required for 16 KB page-size devices (Android 15+).
+            useLegacyPackaging false
+        }
     }
-    lintOptions {
-        checkReleaseBuilds false
-        // Or, if you prefer, you can continue to check for errors in release builds,
-        // but continue the build even when errors are found:
-        //abortOnError false
+
+    lint {
+        // The security-relevant checks must not be silently skipped.
+        abortOnError false
+        checkReleaseBuilds true
+        warningsAsErrors false
     }
 }
 
 dependencies {
-    implementation fileTree(include: ['*.jar'], dir: 'libs')
-    implementation 'com.android.support:appcompat-v7:27.1.1'
-    implementation "com.android.support:support-compat:26.0.0"
-    testImplementation 'junit:junit:4.12'
-    androidTestImplementation 'com.android.support.test:runner:1.0.2'
-    androidTestImplementation 'com.android.support.test.espresso:espresso-core:3.0.2'
+    // Pinned explicitly rather than a wildcard fileTree, so a JAR dropped into
+    // libs/ cannot silently enter the build (HK-09). Provenance and SHA-256 are
+    // recorded in app/libs/README.md.
+    implementation files('libs/voiceimeutils.jar')
+
+    // Only androidx.core is needed: the activities extend the framework classes
+    // directly, so appcompat would be dead weight. Used for NotificationCompat,
+    // NotificationManagerCompat and window-inset handling.
+    implementation 'androidx.core:core:1.17.0'
 }

@@ -27,19 +27,6 @@
 
 using namespace latinime;
 
-//
-// helper function to throw an exception
-//
-static void throwException(JNIEnv *env, const char* ex, const char* fmt, int data)
-{
-    if (jclass cls = env->FindClass(ex)) {
-        char msg[1000];
-        sprintf(msg, fmt, data);
-        env->ThrowNew(cls, msg);
-        env->DeleteLocalRef(cls);
-    }
-}
-
 static jlong latinime_BinaryDictionary_open
         (JNIEnv *env, jobject object, jobject dictDirectBuffer,
          jint typedLetterMultiplier, jint fullWordMultiplier, jint size)
@@ -47,6 +34,13 @@ static jlong latinime_BinaryDictionary_open
     void *dict = env->GetDirectBufferAddress(dictDirectBuffer);
     if (dict == NULL) {
         fprintf(stderr, "DICT: Dictionary buffer is null\n");
+        return 0;
+    }
+    // The declared size is what every bounds check downstream is measured
+    // against, so it must not exceed the buffer that actually exists.
+    jlong capacity = env->GetDirectBufferCapacity(dictDirectBuffer);
+    if (capacity <= 0 || size <= 0 || (jlong) size > capacity) {
+        fprintf(stderr, "DICT: refusing dictionary with bad size\n");
         return 0;
     }
     Dictionary *dictionary = new Dictionary(dict, typedLetterMultiplier, fullWordMultiplier, size);
@@ -60,6 +54,16 @@ static int latinime_BinaryDictionary_getSuggestions(
 {
     Dictionary *dictionary = (Dictionary*) dict;
     if (dictionary == NULL) return 0;
+    if (inputArray == NULL || outputArray == NULL || frequencyArray == NULL) return 0;
+
+    // The native side writes into these arrays using maxWords/maxWordLength as
+    // the geometry. Check that against the arrays actually handed over, so a
+    // mismatch is an early return here rather than a heap overflow in there.
+    if (maxWordLength < 2 || maxWords < 1 || maxAlternatives < 1 || arraySize < 0) return 0;
+    if (env->GetArrayLength(outputArray) < maxWords * maxWordLength) return 0;
+    if (env->GetArrayLength(frequencyArray) < maxWords) return 0;
+    if (env->GetArrayLength(inputArray) < arraySize * maxAlternatives) return 0;
+    if (nextLettersArray != NULL && env->GetArrayLength(nextLettersArray) < nextLettersSize) return 0;
 
     int *frequencies = env->GetIntArrayElements(frequencyArray, NULL);
     int *inputCodes = env->GetIntArrayElements(inputArray, NULL);
@@ -88,6 +92,15 @@ static int latinime_BinaryDictionary_getBigrams
 {
     Dictionary *dictionary = (Dictionary*) dict;
     if (dictionary == NULL) return 0;
+    if (prevWordArray == NULL || inputArray == NULL || outputArray == NULL
+            || frequencyArray == NULL) return 0;
+
+    if (maxWordLength < 2 || maxBigrams < 1 || maxAlternatives < 1
+            || prevWordLength < 1 || inputArraySize < 0) return 0;
+    if (env->GetArrayLength(prevWordArray) < prevWordLength) return 0;
+    if (env->GetArrayLength(outputArray) < maxBigrams * maxWordLength) return 0;
+    if (env->GetArrayLength(frequencyArray) < maxBigrams) return 0;
+    if (env->GetArrayLength(inputArray) < maxAlternatives) return 0;
 
     jchar *prevWord = env->GetCharArrayElements(prevWordArray, NULL);
     int *inputCodes = env->GetIntArrayElements(inputArray, NULL);
@@ -112,6 +125,8 @@ static jboolean latinime_BinaryDictionary_isValidWord
 {
     Dictionary *dictionary = (Dictionary*) dict;
     if (dictionary == NULL) return (jboolean) false;
+    if (wordArray == NULL || wordLength < 1
+            || env->GetArrayLength(wordArray) < wordLength) return (jboolean) false;
 
     jchar *word = env->GetCharArrayElements(wordArray, NULL);
     jboolean result = dictionary->isValidWord((unsigned short*) word, wordLength);

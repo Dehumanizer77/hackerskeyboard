@@ -18,20 +18,14 @@ package org.pocketworkstation.pckeyboard;
 
 import android.content.Context;
 import org.pocketworkstation.pckeyboard.Keyboard.Key;
-import android.text.format.DateFormat;
 import android.util.Log;
 
-import java.io.FileOutputStream;
-import java.io.IOException;
-import java.util.Calendar;
 
 public class TextEntryState {
     
     private static final boolean DBG = false;
 
     private static final String TAG = "TextEntryState";
-
-    private static boolean LOGGING = false;
 
     private static int sBackspaceCount = 0;
     
@@ -66,9 +60,6 @@ public class TextEntryState {
 
     private static State sState = State.UNKNOWN;
 
-    private static FileOutputStream sKeyLocationFile;
-    private static FileOutputStream sUserActionFile;
-    
     public static void newSession(Context context) {
         sSessionCount++;
         sAutoSuggestCount = 0;
@@ -79,43 +70,13 @@ public class TextEntryState {
         sTypedChars = 0;
         sActualChars = 0;
         sState = State.START;
-        
-        if (LOGGING) {
-            try {
-                sKeyLocationFile = context.openFileOutput("key.txt", Context.MODE_APPEND);
-                sUserActionFile = context.openFileOutput("action.txt", Context.MODE_APPEND);
-            } catch (IOException ioe) {
-                Log.e("TextEntryState", "Couldn't open file for output: " + ioe);
-            }
-        }
     }
     
     public static void endSession() {
-        if (sKeyLocationFile == null) {
-            return;
-        }
-        try {
-            sKeyLocationFile.close();
-            // Write to log file            
-            // Write timestamp, settings,
-            String out = DateFormat.format("MM:dd hh:mm:ss", Calendar.getInstance().getTime())
-                    .toString()
-                    + " BS: " + sBackspaceCount
-                    + " auto: " + sAutoSuggestCount
-                    + " manual: " + sManualSuggestCount
-                    + " typed: " + sWordNotInDictionaryCount
-                    + " undone: " + sAutoSuggestUndoneCount
-                    + " saved: " + ((float) (sActualChars - sTypedChars) / sActualChars)
-                    + "\n";
-            sUserActionFile.write(out.getBytes());
-            sUserActionFile.close();
-            sKeyLocationFile = null;
-            sUserActionFile = null;
-        } catch (IOException ioe) {
-            
-        }
+        // Session statistics used to be flushed to action.txt alongside the
+        // keystroke log; both are gone (HK-12).
     }
-    
+
     public static void acceptedDefault(CharSequence typedWord, CharSequence actualWord) {
         if (typedWord == null) return;
         if (!typedWord.equals(actualWord)) {
@@ -255,21 +216,12 @@ public class TextEntryState {
         return sState == State.CORRECTING || sState == State.PICKED_CORRECTION;
     }
 
+    // Instrumentation that appended every typed character and its touch
+    // coordinates to key.txt in the app's storage used to live here, behind a
+    // non-final LOGGING flag (SECURITY-REVIEW.md, HK-12). A keyboard has no
+    // business carrying a keystroke logger that one edit away from being live,
+    // so it is gone; the call site is kept as a no-op.
     public static void keyPressedAt(Key key, int x, int y) {
-        if (LOGGING && sKeyLocationFile != null && key.codes[0] >= 32) {
-            String out = 
-                    "KEY: " + (char) key.codes[0] 
-                    + " X: " + x 
-                    + " Y: " + y
-                    + " MX: " + (key.x + key.width / 2)
-                    + " MY: " + (key.y + key.height / 2) 
-                    + "\n";
-            try {
-                sKeyLocationFile.write(out.getBytes());
-            } catch (IOException ioe) {
-                // TODO: May run out of space
-            }
-        }
     }
 
     private static void displayState() {

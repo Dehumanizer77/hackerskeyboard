@@ -25,19 +25,18 @@ import android.content.DialogInterface;
 import android.content.SharedPreferences;
 import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
-import android.content.pm.Signature;
 import android.content.res.Resources;
+import android.os.Build;
 import android.os.Bundle;
 import android.preference.CheckBoxPreference;
 import android.preference.ListPreference;
 import android.preference.Preference;
-import android.preference.PreferenceActivity;
 import android.preference.PreferenceGroup;
 import android.text.AutoText;
 import android.text.InputType;
 import android.util.Log;
 
-public class LatinIMESettings extends PreferenceActivity
+public class LatinIMESettings extends PreferenceScreenBase
         implements SharedPreferences.OnSharedPreferenceChangeListener,
         DialogInterface.OnDismissListener {
 
@@ -115,22 +114,17 @@ public class LatinIMESettings extends PreferenceActivity
 
         String version = "";
         try {
-            PackageInfo info = getPackageManager().getPackageInfo(getPackageName(), PackageManager.GET_SIGNATURES);
+            PackageInfo info = getPackageManager().getPackageInfo(getPackageName(), 0);
             version = info.versionName;
-            boolean isOfficial = false;
-            for (Signature sig : info.signatures) {
-                byte[] b = sig.toByteArray();
-                int out = 0;
-                for (int i = 0; i < b.length; ++i) {
-                    int pos = i % 4;
-                    out ^= b[i] << (pos * 4);
-                }
-                if (out == -466825) {
-                    isOfficial = true;
-                }
-                //version += " [" + Integer.toHexString(out) + "]";
+            // A 32-bit XOR fold of the signing certificate used to stand in for
+            // an integrity check here (HK-11). It is trivially collidable, so
+            // any repackager could claim the "official" label. Show the real
+            // certificate fingerprint instead: it asserts nothing on its own,
+            // and it can be compared against a published value.
+            String digest = DictPackTrust.certDigest(getPackageManager(), getPackageName());
+            if (digest != null && digest.length() >= 16) {
+                version += "  [" + digest.substring(0, 16) + "]";
             }
-            version += isOfficial ? " official" : " custom";
         } catch (PackageManager.NameNotFoundException e) {
             Log.e(TAG, "Could not find version info.");
         }
@@ -147,6 +141,13 @@ public class LatinIMESettings extends PreferenceActivity
 
     public void onSharedPreferenceChanged(SharedPreferences prefs, String key) {
         (new BackupManager(this)).dataChanged();
+        // The ongoing keyboard notification needs POST_NOTIFICATIONS from API 33
+        // on. Ask for it here, where there is an Activity to ask from - the IME
+        // service itself cannot request runtime permissions.
+        if (LatinIME.PREF_KEYBOARD_NOTIFICATION.equals(key)
+                && prefs.getBoolean(key, false)) {
+            requestNotificationPermission();
+        }
         // If turning on voice input, show dialog
         if (key.equals(VOICE_SETTINGS_KEY) && !mVoiceOn) {
             if (!prefs.getString(VOICE_SETTINGS_KEY, mVoiceModeOff)
@@ -157,6 +158,38 @@ public class LatinIMESettings extends PreferenceActivity
         mVoiceOn = !(prefs.getString(VOICE_SETTINGS_KEY, mVoiceModeOff).equals(mVoiceModeOff));
         updateVoiceModeSummary();
         updateSummaries();
+    }
+
+    private static final int REQUEST_POST_NOTIFICATIONS = 1;
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, String[] permissions,
+            int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (requestCode != REQUEST_POST_NOTIFICATIONS) return;
+        boolean granted = grantResults.length > 0
+                && grantResults[0] == PackageManager.PERMISSION_GRANTED;
+        LatinIME ime = LatinIME.sInstance;
+        if (granted) {
+            // Post the notification now rather than waiting for the preference
+            // to be toggled a second time.
+            if (ime != null) ime.updateKeyboardNotification();
+        } else {
+            // Nothing will be shown, so do not leave the switch claiming it is on.
+            getPreferenceManager().getSharedPreferences().edit()
+                    .putBoolean(LatinIME.PREF_KEYBOARD_NOTIFICATION, false).apply();
+            updateSummaries();
+        }
+    }
+
+    private void requestNotificationPermission() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return;
+        if (checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS)
+                == PackageManager.PERMISSION_GRANTED) {
+            return;
+        }
+        requestPermissions(new String[] { android.Manifest.permission.POST_NOTIFICATIONS },
+                REQUEST_POST_NOTIFICATIONS);
     }
 
     static Map<Integer, String> INPUT_CLASSES = new HashMap<Integer, String>();

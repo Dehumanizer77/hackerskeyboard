@@ -175,10 +175,17 @@ public class BinaryDictionary extends Dictionary {
 
 
     @Override
-    public void getBigrams(final WordComposer codes, final CharSequence previousWord,
+    public synchronized void getBigrams(final WordComposer codes, final CharSequence previousWord,
             final WordCallback callback, int[] nextLettersFrequencies) {
 
+        // close() can run on the finalizer thread while a lookup is in flight.
+        // Without holding the same monitor as close(), the native Dictionary can
+        // be deleted between this check and the call below - a use-after-free in
+        // the process that sees every keystroke.
+        if (mNativeDict == 0 || previousWord == null) return;
+
         char[] chars = previousWord.toString().toCharArray();
+        if (chars.length < 1 || chars.length > MAX_WORD_LENGTH) return;
         Arrays.fill(mOutputChars_bigrams, (char) 0);
         Arrays.fill(mFrequencies_bigrams, 0);
 
@@ -207,8 +214,11 @@ public class BinaryDictionary extends Dictionary {
     }
 
     @Override
-    public void getWords(final WordComposer codes, final WordCallback callback,
+    public synchronized void getWords(final WordComposer codes, final WordCallback callback,
             int[] nextLettersFrequencies) {
+        // Synchronized against close(); see getBigrams().
+        if (mNativeDict == 0) return;
+
         final int codesSize = codes.size();
         // Won't deal with really long words.
         if (codesSize > MAX_WORD_LENGTH - 1) return;
@@ -261,9 +271,11 @@ public class BinaryDictionary extends Dictionary {
     }
 
     @Override
-    public boolean isValidWord(CharSequence word) {
+    public synchronized boolean isValidWord(CharSequence word) {
+        // Synchronized against close(); see getBigrams().
         if (word == null || mNativeDict == 0) return false;
         char[] chars = word.toString().toCharArray();
+        if (chars.length < 1 || chars.length > MAX_WORD_LENGTH) return false;
         return isValidWordNative(mNativeDict, chars, chars.length);
     }
 

@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Auto Backup rules for API 23-30 (HK-03).
+
+  Only the user's settings are backed up. The learned-word stores are NOT:
+  auto_dict.db and userbigram_dict.db accumulate text harvested from everything
+  typed in non-password fields, which must not leave the device in a backup.
+  Naming an <include> makes everything not listed excluded by default; the
+  <exclude> entries below are stated anyway so the intent is explicit.
+-->
+<full-backup-content>
+    <include domain="sharedpref"
+             path="org.pocketworkstation.pckeyboard_preferences.xml" />
+    <exclude domain="database" path="auto_dict.db" />
+    <exclude domain="database" path="userbigram_dict.db" />
+    <exclude domain="file" path="." />
+</full-backup-content>

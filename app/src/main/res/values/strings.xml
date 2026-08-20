@@ -678,4 +678,14 @@
     <string name="notification_channel_name">Hacker\'s Keyboard</string>
     <string name="notification_channel_description">Hacker\'s Keyboard</string>
     <string name="notification_action_settings">Settings</string>
+
+    <!-- Dictionary pack trust (HK-02) -->
+    <string name="dict_packs_title">Dictionary packs</string>
+    <string name="dict_packs_summary">Choose which installed apps may provide dictionaries</string>
+    <string name="dict_packs_none">No dictionary packs found</string>
+    <string name="dict_packs_none_summary">Install a dictionary pack to add suggestions for more languages.</string>
+    <string name="dict_packs_official">Language: %1$s \u2022 %2$s \u2022 signed by the keyboard developer</string>
+    <string name="dict_packs_third_party">Language: %1$s \u2022 %2$s</string>
+    <string name="dict_packs_warning_title">Why this asks</string>
+    <string name="dict_packs_warning">A dictionary pack supplies the word list used for suggestions and autocorrect, and the keyboard reads it directly. Only enable packs from a source you trust.</string>
 </resources>

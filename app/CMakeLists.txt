@@ -44,3 +44,16 @@ target_link_libraries( # Specifies the target library.
                        # Links the target library to the log library
                        # included in the NDK.
                        ${log-lib} )
+
+# Hardening. The dictionary parser reads attacker-influenced input (see
+# SECURITY-REVIEW.md, HK-01/HK-02), so the usual mitigations are made explicit
+# rather than left to whatever the toolchain happens to default to.
+target_link_options( jni_pckeyboard PRIVATE
+                     # Full RELRO: relocations resolved and made read-only at load.
+                     -Wl,-z,relro -Wl,-z,now
+                     # Non-executable stack.
+                     -Wl,-z,noexecstack
+                     # 16 KB-aligned segments for Android 15+ devices with 16 KB
+                     # pages (the NDK r28 default; stated so a downgrade of the
+                     # NDK cannot silently regress it).
+                     -Wl,-z,max-page-size=16384 )

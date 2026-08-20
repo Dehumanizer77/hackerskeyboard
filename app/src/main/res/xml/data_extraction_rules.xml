@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Backup and device-transfer rules for API 31+ (HK-03).
+
+  Same policy as backup_rules.xml: settings travel, learned words never do.
+-->
+<data-extraction-rules>
+    <cloud-backup>
+        <include domain="sharedpref"
+                 path="org.pocketworkstation.pckeyboard_preferences.xml" />
+        <exclude domain="database" path="auto_dict.db" />
+        <exclude domain="database" path="userbigram_dict.db" />
+        <exclude domain="file" path="." />
+    </cloud-backup>
+    <device-transfer>
+        <include domain="sharedpref"
+                 path="org.pocketworkstation.pckeyboard_preferences.xml" />
+        <exclude domain="database" path="auto_dict.db" />
+        <exclude domain="database" path="userbigram_dict.db" />
+        <exclude domain="file" path="." />
+    </device-transfer>
+</data-extraction-rules>

@@ -19,9 +19,8 @@ package org.pocketworkstation.pckeyboard;
 import android.app.backup.BackupManager;
 import android.content.SharedPreferences;
 import android.os.Bundle;
-import android.preference.PreferenceActivity;
 
-public class PrefScreenActions extends PreferenceActivity
+public class PrefScreenActions extends PreferenceScreenBase
         implements SharedPreferences.OnSharedPreferenceChangeListener {
 
     @Override

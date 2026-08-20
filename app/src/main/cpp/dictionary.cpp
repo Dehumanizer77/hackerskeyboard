@@ -34,12 +34,33 @@
 
 namespace latinime {
 
+// Frequency scores are multiplied at every level of the traversal, which
+// overflows a signed int on a deep enough chain (undefined behaviour, and the
+// wrapped value corrupts the ranking). Saturate instead.
+static inline int satMul(int a, int b) {
+    if (a <= 0 || b <= 0) return 0;
+    const int kMax = 1 << 28;   // leaves headroom for one more multiplication
+    if (a > kMax / b) return kMax;
+    int r = a * b;
+    return r > kMax ? kMax : r;
+}
+
 Dictionary::Dictionary(void *dict, int typedLetterMultiplier, int fullWordMultiplier, int size)
 {
     mDict = (unsigned char*) dict;
     mTypedLetterMultiplier = typedLetterMultiplier;
     mFullWordMultiplier = fullWordMultiplier;
-    mDictSize = size;
+    // A null buffer or a nonsensical size makes every inRange() check fail, so
+    // the parser degrades to "no suggestions" instead of reading out of bounds.
+    mDictSize = (dict != NULL && size > 0) ? size : 0;
+    mVersion = 0;
+    mBigram = 0;
+    mMaxWordLength = 0;
+    mMaxWords = 0;
+    mMaxBigrams = 0;
+    mNextLettersFrequencies = NULL;
+    mNextLettersSize = 0;
+    mNodeVisits = 0;
     getVersionNumber();
 }
 
@@ -52,6 +73,14 @@ int Dictionary::getSuggestions(int *codes, int codesSize, unsigned short *outWor
         int *nextLetters, int nextLettersSize)
 {
     int suggWords;
+
+    // Reject implausible geometry before anything is written. The buffers below
+    // belong to the Java caller; if these do not hold, no write is safe.
+    if (codes == NULL || outWords == NULL || frequencies == NULL) return 0;
+    if (maxWordLength < 2 || maxWordLength > MAX_WORD_BUFFER) return 0;
+    if (maxWords < 1 || maxAlternatives < 1) return 0;
+    if (codesSize < 0 || codesSize >= maxWordLength) return 0;
+
     mFrequencies = frequencies;
     mOutputChars = outWords;
     mInputCodes = codes;
@@ -62,7 +91,8 @@ int Dictionary::getSuggestions(int *codes, int codesSize, unsigned short *outWor
     mSkipPos = skipPos;
     mMaxEditDistance = mInputLength < 5 ? 2 : mInputLength / 2;
     mNextLettersFrequencies = nextLetters;
-    mNextLettersSize = nextLettersSize;
+    mNextLettersSize = nextLetters != NULL ? nextLettersSize : 0;
+    mNodeVisits = 0;
 
     if (checkIfDictVersionIsLatest()) {
         getWordsRec(DICTIONARY_HEADER_SIZE, 0, mInputLength * 3, false, 1, 0, 0);
@@ -90,7 +120,7 @@ int Dictionary::getSuggestions(int *codes, int codesSize, unsigned short *outWor
 void
 Dictionary::registerNextLetter(unsigned short c)
 {
-    if (c < mNextLettersSize) {
+    if (mNextLettersFrequencies != NULL && c < mNextLettersSize) {
         mNextLettersFrequencies[c]++;
     }
 }
@@ -98,8 +128,10 @@ Dictionary::registerNextLetter(unsigned short c)
 void
 Dictionary::getVersionNumber()
 {
-    mVersion = (mDict[0] & 0xFF);
-    mBigram = (mDict[1] & 0xFF);
+    // Header bytes are read through the bounds-checked accessor: a truncated
+    // dictionary is a two-byte out-of-bounds read here otherwise.
+    mVersion = byteAt(0);
+    mBigram = byteAt(1);
     LOGI("IN NATIVE SUGGEST Version: %d Bigram : %d \n", mVersion, mBigram);
 }
 
@@ -113,10 +145,15 @@ Dictionary::checkIfDictVersionIsLatest()
 unsigned short
 Dictionary::getChar(int *pos)
 {
-    if (*pos < 0 || *pos >= mDictSize) return 0;
+    if (!inRange(*pos, 1)) return 0;
     unsigned short ch = (unsigned short) (mDict[(*pos)++] & 0xFF);
     // If the code is 255, then actual 16 bit code follows (in big endian)
     if (ch == 0xFF) {
+        // The two continuation bytes were previously read without a check.
+        if (!inRange(*pos, 2)) {
+            *pos = mDictSize;
+            return 0;
+        }
         ch = ((mDict[*pos] & 0xFF) << 8) | (mDict[*pos + 1] & 0xFF);
         (*pos) += 2;
     }
@@ -126,11 +163,16 @@ Dictionary::getChar(int *pos)
 int
 Dictionary::getAddress(int *pos)
 {
-    if (*pos < 0 || *pos >= mDictSize) return 0;
+    if (!inRange(*pos, 1)) return 0;
     int address = 0;
     if ((mDict[*pos] & FLAG_ADDRESS_MASK) == 0) {
         *pos += 1;
     } else {
+        // Three bytes are consumed here, so all three have to be present.
+        if (!inRange(*pos, 3)) {
+            *pos = mDictSize;
+            return 0;
+        }
         address += (mDict[*pos] & (ADDRESS_MASK >> 16)) << 16;
         address += (mDict[*pos + 1] & 0xFF) << 8;
         address += (mDict[*pos + 2] & 0xFF);
@@ -140,24 +182,41 @@ Dictionary::getAddress(int *pos)
     return address;
 }
 
+// Walks the bigram list that follows a terminal node. The continuation bit is
+// read from the dictionary file, so without a bound this loop runs the cursor
+// off the end of the buffer for as long as the attacker keeps the bit set.
+void
+Dictionary::skipBigrams(int *pos)
+{
+    if (!inRange(*pos, 1)) {
+        *pos = mDictSize;
+        return;
+    }
+    if ((mDict[*pos] & FLAG_BIGRAM_READ) > 0) {
+        int nextBigramExist = 1;
+        int entries = 0;
+        while (nextBigramExist > 0 && entries++ < MAX_BIGRAM_ENTRIES) {
+            // Each entry is a 3-byte address plus one flag byte.
+            if (!inRange(*pos, 4)) {
+                *pos = mDictSize;
+                return;
+            }
+            (*pos) += 3;
+            nextBigramExist = (mDict[(*pos)++] & FLAG_BIGRAM_CONTINUED);
+        }
+    } else {
+        (*pos)++;
+    }
+}
+
 int
 Dictionary::getFreq(int *pos)
 {
-    if (*pos < 0 || *pos >= mDictSize) return 0;
+    if (!inRange(*pos, 1)) return 0;
     int freq = mDict[(*pos)++] & 0xFF;
 
     if (checkIfDictVersionIsLatest()) {
-        // skipping bigram
-        int bigramExist = (mDict[*pos] & FLAG_BIGRAM_READ);
-        if (bigramExist > 0) {
-            int nextBigramExist = 1;
-            while (nextBigramExist > 0) {
-                (*pos) += 3;
-                nextBigramExist = (mDict[(*pos)++] & FLAG_BIGRAM_CONTINUED);
-            }
-        } else {
-            (*pos)++;
-        }
+        skipBigrams(pos);
     }
 
     return freq;
@@ -176,6 +235,13 @@ Dictionary::wideStrLen(unsigned short *str)
 bool
 Dictionary::addWord(unsigned short *word, int length, int frequency)
 {
+    // Each output slot is mMaxWordLength shorts wide and the word is written
+    // with a terminating 0, so length must leave room for it. Without this the
+    // word runs into the following slots and, from the last slot, past the end
+    // of the Java char[] the caller pinned for us.
+    if (length < 1 || length >= mMaxWordLength || length >= MAX_WORD_BUFFER) {
+        return false;
+    }
     word[length] = 0;
     if (DEBUG_DICT) {
         char s[length + 1];
@@ -215,6 +281,11 @@ Dictionary::addWord(unsigned short *word, int length, int frequency)
 bool
 Dictionary::addWordBigram(unsigned short *word, int length, int frequency)
 {
+    // Same bound as addWord(): mBigramChars is a Java char[] of
+    // mMaxBigrams * mMaxWordLength shorts.
+    if (length < 1 || length >= mMaxWordLength || length >= MAX_WORD_BUFFER) {
+        return false;
+    }
     word[length] = 0;
     if (DEBUG_DICT) {
         char s[length + 1];
@@ -292,6 +363,16 @@ Dictionary::getWordsRec(int pos, int depth, int maxDepth, bool completion, int s
     if (depth > maxDepth) {
         return;
     }
+    // Hard bound on the composition buffer. maxDepth is derived from how much
+    // the user typed (mInputLength * 3, so up to 141), but mWord holds
+    // MAX_WORD_BUFFER entries and each output slot holds mMaxWordLength. The
+    // trie depth itself comes from the dictionary file, so a crafted dictionary
+    // with a long enough node chain reaches any depth the pruning allows.
+    // addWord() is called with depth + 1 and writes a terminator after it, so
+    // two entries of headroom are required.
+    if (depth + 2 > mMaxWordLength || depth + 2 > MAX_WORD_BUFFER) {
+        return;
+    }
     if (diffs > mMaxEditDistance) {
         return;
     }
@@ -304,6 +385,10 @@ Dictionary::getWordsRec(int pos, int depth, int maxDepth, bool completion, int s
     }
 
     for (int i = 0; i < count; i++) {
+        // Child addresses come from the file and may point backwards, so the
+        // traversal can revisit nodes; without this budget a crafted dictionary
+        // makes the search exponential and the keyboard stops responding.
+        if (++mNodeVisits > MAX_NODE_VISITS) return;
         // -- at char
         unsigned short c = getChar(&pos);
         // -- at flag/add
@@ -319,7 +404,7 @@ Dictionary::getWordsRec(int pos, int depth, int maxDepth, bool completion, int s
         if (completion) {
             mWord[depth] = c;
             if (terminal) {
-                addWord(mWord, depth + 1, freq * snr);
+                addWord(mWord, depth + 1, satMul(freq, snr));
                 if (depth >= mInputLength && mSkipPos < 0) {
                     registerNextLetter(mWord[mInputLength]);
                 }
@@ -344,19 +429,19 @@ Dictionary::getWordsRec(int pos, int depth, int maxDepth, bool completion, int s
                         if (terminal) {
                             if (//INCLUDE_TYPED_WORD_IF_VALID ||
                                 !sameAsTyped(mWord, depth + 1)) {
-                                int finalFreq = freq * snr * addedWeight;
-                                if (mSkipPos < 0) finalFreq *= mFullWordMultiplier;
+                                int finalFreq = satMul(satMul(freq, snr), addedWeight);
+                                if (mSkipPos < 0) finalFreq = satMul(finalFreq, mFullWordMultiplier);
                                 addWord(mWord, depth + 1, finalFreq);
                             }
                         }
                         if (childrenAddress != 0) {
                             getWordsRec(childrenAddress, depth + 1,
-                                    maxDepth, true, snr * addedWeight, inputIndex + 1,
+                                    maxDepth, true, satMul(snr, addedWeight), inputIndex + 1,
                                     diffs + (j > 0));
                         }
                     } else if (childrenAddress != 0) {
                         getWordsRec(childrenAddress, depth + 1, maxDepth,
-                                false, snr * addedWeight, inputIndex + 1, diffs + (j > 0));
+                                false, satMul(snr, addedWeight), inputIndex + 1, diffs + (j > 0));
                     }
                 }
                 j++;
@@ -369,7 +454,8 @@ Dictionary::getWordsRec(int pos, int depth, int maxDepth, bool completion, int s
 int
 Dictionary::getBigramAddress(int *pos, bool advance)
 {
-    if (*pos < 0 || *pos >= mDictSize) return 0;
+    // Three bytes are read, so all three must be inside the buffer.
+    if (!inRange(*pos, 3)) return 0;
     int address = 0;
 
     address += (mDict[*pos] & 0x3F) << 16;
@@ -387,7 +473,7 @@ Dictionary::getBigramAddress(int *pos, bool advance)
 int
 Dictionary::getBigramFreq(int *pos)
 {
-    if (*pos < 0 || *pos >= mDictSize) return 0;
+    if (!inRange(*pos, 1)) return 0;
     int freq = mDict[(*pos)++] & FLAG_BIGRAM_FREQ;
 
     return freq;
@@ -399,6 +485,12 @@ Dictionary::getBigrams(unsigned short *prevWord, int prevWordLength, int *codes,
         unsigned short *bigramChars, int *bigramFreq, int maxWordLength, int maxBigrams,
         int maxAlternatives)
 {
+    // Same geometry checks as getSuggestions(): these buffers are the caller's.
+    if (prevWord == NULL || codes == NULL || bigramChars == NULL || bigramFreq == NULL) return 0;
+    if (maxWordLength < 2 || maxWordLength > MAX_WORD_BUFFER) return 0;
+    if (maxBigrams < 1 || maxAlternatives < 1) return 0;
+    if (prevWordLength < 1 || codesSize < 0) return 0;
+
     mBigramFreq = bigramFreq;
     mBigramChars = bigramChars;
     mInputCodes = codes;
@@ -406,11 +498,12 @@ Dictionary::getBigrams(unsigned short *prevWord, int prevWordLength, int *codes,
     mMaxWordLength = maxWordLength;
     mMaxBigrams = maxBigrams;
     mMaxAlternatives = maxAlternatives;
+    mNodeVisits = 0;
 
     if (mBigram == 1 && checkIfDictVersionIsLatest()) {
         int pos = isValidWordRec(DICTIONARY_HEADER_SIZE, prevWord, 0, prevWordLength);
         LOGI("Pos -> %d\n", pos);
-        if (pos < 0) {
+        if (pos < 0 || !inRange(pos, 1)) {
             return 0;
         }
 
@@ -419,6 +512,8 @@ Dictionary::getBigrams(unsigned short *prevWord, int prevWordLength, int *codes,
         if (bigramExist > 0) {
             int nextBigramExist = 1;
             while (nextBigramExist > 0 && bigramCount < maxBigrams) {
+                // 3 address bytes plus the frequency/continuation byte.
+                if (!inRange(pos, 4)) break;
                 int bigramAddress = getBigramAddress(&pos, true);
                 int frequency = (FLAG_BIGRAM_FREQ & mDict[pos]);
                 // search for all bigrams and store them
@@ -437,6 +532,7 @@ void
 Dictionary::searchForTerminalNode(int addressLookingFor, int frequency)
 {
     // track word with such address and store it in an array
+    if (mMaxWordLength < 2 || mMaxWordLength > MAX_WORD_BUFFER) return;
     unsigned short word[mMaxWordLength];
 
     int pos;
@@ -444,22 +540,33 @@ Dictionary::searchForTerminalNode(int addressLookingFor, int frequency)
     bool found = false;
     char followingChar = ' ';
     int depth = -1;
+    int steps = 0;
 
-    while(!found) {
+    // The loop below only terminates when the node is found or the branch
+    // address becomes 0, both of which are decided by the dictionary contents.
+    // A crafted dictionary can keep it going indefinitely, and every iteration
+    // writes one more entry into a fixed-size stack buffer, so bound both.
+    while (!found && steps++ < MAX_TRAVERSE_STEPS) {
         bool followDownAddressSearchStop = false;
         bool firstAddress = true;
         bool haveToSearchAll = true;
 
         if (depth >= 0) {
+            // Leave room for the terminating 0 written by addWordBigram().
+            if (depth >= mMaxWordLength - 1) break;
             word[depth] = (unsigned short) followingChar;
         }
         pos = followDownBranchAddress; // pos start at count
+        if (!inRange(pos, 1)) break;
         int count = mDict[pos] & 0xFF;
         LOGI("count - %d\n",count);
         pos++;
         for (int i = 0; i < count; i++) {
             // pos at data
             pos++;
+            // Every branch below reads at pos or beyond; stop as soon as the
+            // cursor leaves the buffer rather than reading past the end.
+            if (!inRange(pos, 1)) break;
             // pos now at flag
             if (!getFirstBitOfByte(&pos)) { // non-terminal
                 if (!followDownAddressSearchStop) {
@@ -485,7 +592,8 @@ Dictionary::searchForTerminalNode(int addressLookingFor, int frequency)
             } else if (getFirstBitOfByte(&pos)) { // terminal
                 if (addressLookingFor == (pos-1)) { // found !!
                     depth++;
-                    word[depth] = (0xFF & mDict[pos-1]);
+                    if (depth >= mMaxWordLength - 1) return;
+                    word[depth] = (0xFF & byteAt(pos-1));
                     found = true;
                     break;
                 }
@@ -514,17 +622,8 @@ Dictionary::searchForTerminalNode(int addressLookingFor, int frequency)
                     pos += 2;
                 }
 
-                // skipping bigram
-                int bigramExist = (mDict[pos] & FLAG_BIGRAM_READ);
-                if (bigramExist > 0) {
-                    int nextBigramExist = 1;
-                    while (nextBigramExist > 0) {
-                        pos += 3;
-                        nextBigramExist = (mDict[pos++] & FLAG_BIGRAM_CONTINUED);
-                    }
-                } else {
-                    pos++;
-                }
+                // skipping bigram (bounded; see skipBigrams)
+                skipBigrams(&pos);
             }
         }
         depth++;
@@ -533,7 +632,10 @@ Dictionary::searchForTerminalNode(int addressLookingFor, int frequency)
             break;
         }
     }
-    if (checkFirstCharacter(word)) {
+    // depth is the number of characters collected; addWordBigram() rejects
+    // anything that does not fit, but do not hand it a word that was never
+    // written to in the first place.
+    if (depth > 0 && depth < mMaxWordLength && checkFirstCharacter(word)) {
         addWordBigram(word, depth, frequency);
     }
 }
@@ -559,6 +661,7 @@ Dictionary::checkFirstCharacter(unsigned short *word)
 bool
 Dictionary::isValidWord(unsigned short *word, int length)
 {
+    mNodeVisits = 0;
     if (checkIfDictVersionIsLatest()) {
         return (isValidWordRec(DICTIONARY_HEADER_SIZE, word, 0, length) != NOT_VALID_WORD);
     } else {
@@ -571,9 +674,16 @@ Dictionary::isValidWordRec(int pos, unsigned short *word, int offset, int length
     // returns address of bigram data of that word
     // return -99 if not found
 
+    // word is the caller's buffer of `length` entries, and recursion descends
+    // one character per level; both bounds are asserted rather than assumed.
+    if (word == NULL || offset < 0 || length < 1 || offset >= length) return NOT_VALID_WORD;
+    if (!inRange(pos, 1)) return NOT_VALID_WORD;
+
     int count = getCount(&pos);
     unsigned short currentChar = (unsigned short) word[offset];
     for (int j = 0; j < count; j++) {
+        // Same budget as getWordsRec(): child addresses may form cycles.
+        if (++mNodeVisits > MAX_NODE_VISITS) return NOT_VALID_WORD;
         unsigned short c = getChar(&pos);
         int terminal = getTerminal(&pos);
         int childPos = getAddress(&pos);
