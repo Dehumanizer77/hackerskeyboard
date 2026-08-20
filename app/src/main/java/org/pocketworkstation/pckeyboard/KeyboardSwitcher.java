@@ -639,6 +639,12 @@ public class KeyboardSwitcher implements
             mInputView.setExtensionLayoutResId(THEMES[newLayout]);
             mInputView.setOnKeyboardActionListener(mInputMethodService);
             mInputView.setPadding(0, 0, 0, 0);
+            // The line above discards the theme's keyboard_bottom_padding, so the
+            // key rows sit flush with the bottom of the IME window. That window is
+            // laid out edge to edge now (API 35+), so the navigation bar would be
+            // drawn straight over the bottom row. Reserve exactly the inset the
+            // system reports - zero where there is nothing to avoid.
+            WindowInsetsHelper.padForBottomSystemBars(mInputView);
             mLayoutId = newLayout;
         }
         mInputMethodService.mHandler.post(new Runnable() {

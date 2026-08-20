@@ -95,11 +95,22 @@ run first and fail the harness if suggestions stop coming back.
 
 Stating these plainly, because they are the gaps in this work:
 
-- **No device or emulator testing.** Everything here is verified by compilation,
-  by the host-side sanitizer harness, and by inspecting the built APK. The
-  keyboard has not been typed on. The changes most likely to need real-device
-  checking are the edge-to-edge inset padding on the settings screens, the
-  notification permission flow on API 33+, and the new dictionary-pack screen.
+- **Almost no device testing.** Everything here is verified by compilation, by
+  the host-side sanitizer harness, and by inspecting the built APK.
+
+  The one exception is edge-to-edge layout, which *was* checked on a device and
+  did fail: targeting API 35+ makes the IME window edge-to-edge, so the
+  navigation bar - gesture pill, hide-keyboard affordance and IME-switcher globe
+  - was drawn straight over the keyboard's bottom key row. Confirmed by building
+  an otherwise identical APK at `targetSdk 34`, where the overlap disappears.
+  `KeyboardSwitcher` also calls `setPadding(0, 0, 0, 0)` right after inflating
+  the theme layout, discarding `keyboard_bottom_padding`, so nothing reserved
+  that space. Fixed by applying the reported navigation-bar and display-cutout
+  insets as bottom padding on the input view.
+
+  Still unverified on a device: the notification permission flow on API 33+, the
+  new dictionary-pack settings screen, and the inset padding on the settings
+  screens.
 - **R8 is newly enabled.** Release builds are verified to keep the JNI entry
   point (`BinaryDictionary` and its native method names — renaming them breaks
   every dictionary lookup silently) and every XML-inflated View and Preference
