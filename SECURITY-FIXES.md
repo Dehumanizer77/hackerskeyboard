@@ -108,9 +108,16 @@ Stating these plainly, because they are the gaps in this work:
   that space. Fixed by applying the reported navigation-bar and display-cutout
   insets as bottom padding on the input view.
 
-  Still unverified on a device: the notification permission flow on API 33+, the
-  new dictionary-pack settings screen, and the inset padding on the settings
-  screens.
+  Clearing the system controls turned out not to be the same as being far enough
+  from them to aim at Ctrl, Alt or the arrow keys: taps that fell slightly low
+  still landed on the hide-keyboard and switch-keyboard affordances. The gap
+  below the bottom key row is now an adjustable setting (Settings > Bottom gap,
+  default 16 dp on top of the system insets) rather than a fixed constant,
+  because how much room that needs depends on the device.
+
+  Still unverified on a device: the size of that default, the notification
+  permission flow on API 33+, the new dictionary-pack settings screen, and the
+  inset padding on the settings screens.
 - **R8 is newly enabled.** Release builds are verified to keep the JNI entry
   point (`BinaryDictionary` and its native method names — renaming them breaks
   every dictionary lookup silently) and every XML-inflated View and Preference

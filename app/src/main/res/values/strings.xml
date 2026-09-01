@@ -688,4 +688,9 @@
     <string name="dict_packs_third_party">Language: %1$s \u2022 %2$s</string>
     <string name="dict_packs_warning_title">Why this asks</string>
     <string name="dict_packs_warning">A dictionary pack supplies the word list used for suggestions and autocorrect, and the keyboard reads it directly. Only enable packs from a source you trust.</string>
+
+    <!-- Extra space below the bottom key row -->
+    <string name="title_bottom_gap">Bottom gap</string>
+    <string name="summary_bottom_gap">Extra space between the bottom key row and the system\'s hide-keyboard and switch-keyboard buttons</string>
+    <string name="default_bottom_gap">16</string>
 </resources>

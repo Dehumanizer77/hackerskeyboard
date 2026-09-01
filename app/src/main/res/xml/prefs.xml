@@ -45,6 +45,18 @@
             android:persistent="true"
             />
 
+    <org.pocketworkstation.pckeyboard.SeekBarPreferenceString
+            android:defaultValue="@string/default_bottom_gap"
+            hk:minValue="0"
+            hk:maxValue="64"
+            hk:step="2"
+            hk:displayFormat="%.0f dp"
+            android:key="pref_bottom_gap"
+            android:title="@string/title_bottom_gap"
+            android:summary="@string/summary_bottom_gap"
+            android:persistent="true"
+            />
+
     <org.pocketworkstation.pckeyboard.AutoSummaryListPreference
             android:key="pref_keyboard_mode_portrait"
             android:title="@string/title_keyboard_mode_portrait"

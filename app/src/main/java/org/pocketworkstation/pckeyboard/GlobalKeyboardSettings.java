@@ -62,6 +62,15 @@ public final class GlobalKeyboardSettings {
     //
     // Read by PointerTracker
     public int sendSlideKeys = 0;
+    //
+    // Read by KeyboardSwitcher. Extra gap in dp left below the bottom key row,
+    // on top of whatever the system reserves for the navigation bar and the
+    // IME-switcher controls. The system insets keep the keys from being drawn
+    // under those controls, but leave them close enough that a slightly low tap
+    // on Ctrl/Alt or the arrow keys lands on the hide-keyboard or
+    // switch-keyboard affordance instead. How much room that needs depends on
+    // the device, so it is a setting rather than a constant.
+    public float bottomGapDp = 16.0f;
     
     /* Updated by LatinIME */
     //
@@ -118,6 +127,25 @@ public final class GlobalKeyboardSettings {
         int getFlags();
     }
 
+    /**
+     * Tolerant float parse for preferences that a user or an older version may
+     * have left in an unexpected shape. A malformed value here would otherwise
+     * throw while applying settings, which for an IME means the keyboard dies
+     * mid-edit; falling back to the default is always better.
+     */
+    private static float clampedFloat(String val, float fallback, float min, float max) {
+        float f = fallback;
+        if (val != null) {
+            try {
+                f = Float.parseFloat(val.trim());
+            } catch (NumberFormatException e) {
+                f = fallback;
+            }
+        }
+        if (Float.isNaN(f)) f = fallback;
+        return Math.max(min, Math.min(max, f));
+    }
+
     public void initPrefs(SharedPreferences prefs, Resources resources) {
         final Resources res = resources;
 
@@ -167,6 +195,12 @@ public final class GlobalKeyboardSettings {
             public void set(String val) { candidateScalePref = Float.valueOf(val); }
             public String getDefault() { return "1.0"; }
             public int getFlags() { return FLAG_PREF_RESET_KEYBOARDS; }
+        });
+
+        addStringPref("pref_bottom_gap", new StringPref() {
+            public void set(String val) { bottomGapDp = clampedFloat(val, 16.0f, 0.0f, 64.0f); }
+            public String getDefault() { return res.getString(R.string.default_bottom_gap); }
+            public int getFlags() { return FLAG_PREF_RECREATE_INPUT_VIEW; }
         });
 
         addStringPref("pref_top_row_scale", new StringPref() {

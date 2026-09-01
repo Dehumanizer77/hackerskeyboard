@@ -48,6 +48,11 @@ final class WindowInsetsHelper {
      */
     static void padForBottomSystemBars(final View view, final int extraBottomPx) {
         if (view == null) return;
+        // Apply the extra gap up front. The listener below refines it once the
+        // system reports its insets, but on a path where no inset dispatch ever
+        // arrives the user's configured gap would otherwise be silently lost.
+        view.setPadding(view.getPaddingLeft(), view.getPaddingTop(),
+                view.getPaddingRight(), extraBottomPx);
         ViewCompat.setOnApplyWindowInsetsListener(view, new OnApplyWindowInsetsListener() {
             @Override
             public WindowInsetsCompat onApplyWindowInsets(View v, WindowInsetsCompat insets) {
