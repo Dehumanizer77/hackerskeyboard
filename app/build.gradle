@@ -2,6 +2,21 @@ plugins {
     id 'com.android.application'
 }
 
+// Release signing is configured out of tree: keystore.properties (gitignored)
+// or the matching HK_* environment variables. Neither the keystore nor its
+// password belongs in the repository. Without either, the release build is
+// simply left unsigned, so a clean clone still builds.
+def keystorePropsFile = rootProject.file('keystore.properties')
+def keystoreProps = new Properties()
+if (keystorePropsFile.exists()) {
+    keystorePropsFile.withInputStream { keystoreProps.load(it) }
+}
+def signStoreFile = keystoreProps.getProperty('storeFile') ?: System.getenv('HK_STORE_FILE')
+def signStorePassword = keystoreProps.getProperty('storePassword') ?: System.getenv('HK_STORE_PASSWORD')
+def signKeyAlias = keystoreProps.getProperty('keyAlias') ?: System.getenv('HK_KEY_ALIAS')
+def signKeyPassword = keystoreProps.getProperty('keyPassword') ?: System.getenv('HK_KEY_PASSWORD')
+def canSign = signStoreFile != null && file(signStoreFile).exists()
+
 android {
     namespace 'org.pocketworkstation.pckeyboard'
     compileSdk 36
@@ -16,8 +31,10 @@ android {
         // above that is still supported; nothing in this app needs a higher minimum.
         minSdk 21
         targetSdk 36
-        versionCode 1041001
-        versionName "v1.41.1"
+        // Upstream v1.41.1 plus the hardening work on this branch. The code is
+        // bumped so a later hardened build installs over this one.
+        versionCode 1041002
+        versionName "v1.41.1-hardened.1"
 
         externalNativeBuild {
             cmake {
@@ -28,8 +45,30 @@ android {
         }
     }
 
+    signingConfigs {
+        release {
+            if (canSign) {
+                storeFile file(signStoreFile)
+                storePassword signStorePassword
+                keyAlias signKeyAlias
+                keyPassword signKeyPassword
+                // v1 for API 21-23, v2/v3 for everything newer. v3 is what
+                // supports key rotation, so it is worth having from the start.
+                enableV1Signing true
+                enableV2Signing true
+                enableV3Signing true
+            }
+        }
+    }
+
     buildTypes {
         release {
+            if (canSign) {
+                signingConfig signingConfigs.release
+            } else {
+                logger.warn('No signing config found; the release APK will be unsigned '
+                        + 'and cannot be installed. See keystore.properties.')
+            }
             minifyEnabled true
             shrinkResources true
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'),
