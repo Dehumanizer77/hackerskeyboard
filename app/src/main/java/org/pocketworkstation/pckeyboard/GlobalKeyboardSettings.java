@@ -46,6 +46,15 @@ public final class GlobalKeyboardSettings {
     public int keyboardModeLandscape = 2;
     public boolean compactModeEnabled = true;  // always on
     public int ctrlAOverride = 0;
+    //
+    // Read by LatinIME. How Ctrl and Alt behave: in a terminal they have to be
+    // sent as raw control characters and ESC prefixes, everywhere else as
+    // ordinary modified key events. 0 = detect, 1 = always terminal,
+    // 2 = never terminal.
+    public static final int TERMINAL_MODE_AUTO = 0;
+    public static final int TERMINAL_MODE_ALWAYS = 1;
+    public static final int TERMINAL_MODE_NEVER = 2;
+    public int terminalMode = TERMINAL_MODE_AUTO;
     public int chordingCtrlKey = 0;
     public int chordingAltKey = 0;
     public int chordingMetaKey = 0;
@@ -207,6 +216,12 @@ public final class GlobalKeyboardSettings {
             public void set(String val) { topRowScale = Float.valueOf(val); }
             public String getDefault() { return "1.0"; }
             public int getFlags() { return FLAG_PREF_RESET_KEYBOARDS; }
+        });
+
+        addStringPref("pref_terminal_mode", new StringPref() {
+            public void set(String val) { terminalMode = (int) clampedFloat(val, 0.0f, 0.0f, 2.0f); }
+            public String getDefault() { return res.getString(R.string.default_terminal_mode); }
+            public int getFlags() { return FLAG_PREF_NONE; }
         });
 
         addStringPref("pref_ctrl_a_override", new StringPref() {

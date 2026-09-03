@@ -1255,7 +1255,7 @@ public class LatinIME extends InputMethodService implements
         // mode
         float dimen = getResources().getDimension(
                 R.dimen.max_height_for_fullscreen);
-        if (displayHeight > dimen || mFullscreenOverride || isConnectbot()) {
+        if (displayHeight > dimen || mFullscreenOverride || isTerminalApp()) {
             return false;
         } else {
             return super.onEvaluateFullscreenMode();
@@ -1557,15 +1557,43 @@ public class LatinIME extends InputMethodService implements
         return mOptionsDialog != null && mOptionsDialog.isShowing();
     }
 
-    private boolean isConnectbot() {
+    /**
+     * True when this field should be driven like a terminal: Ctrl+key sends the
+     * raw control character, Alt sends an ESC prefix, Tab and Escape are passed
+     * through, and the keyboard does not go fullscreen in landscape.
+     *
+     * This used to require the editor's package to be one of four hardcoded
+     * ConnectBot builds *and* its inputType to be exactly 0 - a condition the
+     * original author marked FIXME. Any terminal not on that list, or one that
+     * sets an inputType to stop the IME autocorrecting shell commands, fell
+     * through to the ordinary text path. There, Ctrl-A is swallowed by the
+     * select-all override and Ctrl+key is sent as a modified key event the
+     * terminal never turns into a control character - so "Ctrl-A d" arrives at
+     * the shell as a bare "d".
+     *
+     * No hardcoded list can cover every terminal, so this is also settable
+     * directly: Settings > Terminal mode.
+     */
+    private boolean isTerminalApp() {
+        final int mode = sKeyboardSettings.terminalMode;
+        if (mode == GlobalKeyboardSettings.TERMINAL_MODE_ALWAYS) return true;
+        if (mode == GlobalKeyboardSettings.TERMINAL_MODE_NEVER) return false;
+
         EditorInfo ei = getCurrentInputEditorInfo();
-        String pkg = ei.packageName;
-        if (ei == null || pkg == null) return false;
-        return ((pkg.equalsIgnoreCase("org.connectbot")
-            || pkg.equalsIgnoreCase("org.woltage.irssiconnectbot")
-            || pkg.equalsIgnoreCase("com.pslib.connectbot")
-            || pkg.equalsIgnoreCase("sk.vx.connectbot")
-        ) && ei.inputType == 0); // FIXME
+        if (ei == null || ei.packageName == null) return false;
+        final String pkg = ei.packageName.toLowerCase(Locale.ROOT);
+
+        // Any ConnectBot descendant, however it is packaged, plus the other
+        // terminal and SSH clients people actually use.
+        if (pkg.contains("connectbot")) return true;
+        if (pkg.equals("com.termux") || pkg.startsWith("com.termux.")) return true;
+        if (pkg.equals("com.sonelli.juicessh")) return true;
+        if (pkg.equals("com.server.auditor.ssh.client")) return true;   // Termius
+        if (pkg.equals("com.googlecode.android_scripting")) return true;
+        if (pkg.equals("jackpal.androidterm")) return true;             // Terminal Emulator
+        if (pkg.equals("com.offsec.nethunter")) return true;
+
+        return false;
     }
 
     private int getMetaState(boolean shifted) {
@@ -1718,7 +1746,7 @@ public class LatinIME extends InputMethodService implements
     }
 
     private void sendSpecialKey(int code) {
-        if (!isConnectbot()) {
+        if (!isTerminalApp()) {
             commitTyped(getCurrentInputConnection(), true);
             sendModifiedKeyDownUp(code);
             return;
@@ -1875,7 +1903,7 @@ public class LatinIME extends InputMethodService implements
         boolean modShift = isShiftMod();
         if ((modShift || mModCtrl || mModAlt || mModMeta) && ch > 0 && ch < 127) {
             InputConnection ic = getCurrentInputConnection();
-            if (isConnectbot()) {
+            if (isTerminalApp()) {
                 if (mModAlt) {
                     // send ESC prefix
                     ic.commitText(Character.toString((char) 27), 1);
@@ -1963,7 +1991,7 @@ public class LatinIME extends InputMethodService implements
     
     private void sendTab() {
         InputConnection ic = getCurrentInputConnection();
-        boolean tabHack = isConnectbot() && mConnectbotTabHack;
+        boolean tabHack = isTerminalApp() && mConnectbotTabHack;
 
         // FIXME: tab and ^I don't work in connectbot, hackish workaround
         if (tabHack) {
@@ -1985,7 +2013,7 @@ public class LatinIME extends InputMethodService implements
     }
 
     private void sendEscape() {
-        if (isConnectbot()) {
+        if (isTerminalApp()) {
             sendKeyChar((char) 27);
         } else {
             sendModifiedKeyDownUp(111 /*KeyEvent.KEYCODE_ESCAPE */);

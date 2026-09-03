@@ -693,4 +693,19 @@
     <string name="title_bottom_gap">Bottom gap</string>
     <string name="summary_bottom_gap">Extra space between the bottom key row and the system\'s hide-keyboard and switch-keyboard buttons</string>
     <string name="default_bottom_gap">16</string>
+
+    <!-- Terminal mode: how Ctrl and Alt are sent -->
+    <string name="title_terminal_mode">Terminal mode</string>
+    <string name="summary_terminal_mode">Send Ctrl as a raw control character and Alt as an ESC prefix, the way terminals and SSH clients expect. Set this to Always if Ctrl key combinations do not reach your shell.</string>
+    <string name="default_terminal_mode">0</string>
+    <string-array name="terminal_mode_entries">
+        <item>Detect terminal apps automatically</item>
+        <item>Always (every app)</item>
+        <item>Never</item>
+    </string-array>
+    <string-array name="terminal_mode_values">
+        <item>0</item>
+        <item>1</item>
+        <item>2</item>
+    </string-array>
 </resources>
