@@ -33,8 +33,8 @@ android {
         targetSdk 36
         // Upstream v1.41.1 plus the hardening work on this branch. The code is
         // bumped so a later hardened build installs over this one.
-        versionCode 1041003
-        versionName "v1.41.1-hardened.2"
+        versionCode 1041004
+        versionName "v1.41.1-hardened.3"
 
         externalNativeBuild {
             cmake {

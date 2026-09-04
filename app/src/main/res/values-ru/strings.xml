@@ -378,11 +378,7 @@
     <string name="summary_keyboard_notification_true">Включать клавиатуру при нажатии на уведомление</string>
     <string name="summary_keyboard_notification_false">Уведомление отключено</string>
 
-    <string name="title_application_category">Настройки совместимости</string>
 
-    <string name="title_connectbot_tab_hack">Tab для ConnectBot</string>
-    <string name="summary_connectbot_tab_hack_true">Режим совместимости включен</string>
-    <string name="summary_connectbot_tab_hack_false">Обычный режим</string>
 
     <string name="title_caps_lock">Двойное нажатие Shift</string>
     <string name="summary_caps_lock_true">Режим CapsLock (a1 ⇒ A1)</string>

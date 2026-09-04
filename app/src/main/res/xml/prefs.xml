@@ -332,21 +332,6 @@
     </PreferenceCategory>
 
     <PreferenceCategory
-            android:title="@string/title_application_category"
-            android:key="application_settings">
-
-        <CheckBoxPreference
-            android:key="connectbot_tab_hack"
-            android:title="@string/title_connectbot_tab_hack"
-            android:persistent="true" 
-            android:defaultValue="true"
-            android:summaryOn="@string/summary_connectbot_tab_hack_true"
-            android:summaryOff="@string/summary_connectbot_tab_hack_false"
-            />
-
-    </PreferenceCategory>
-
-    <PreferenceCategory
             android:title="@string/title_debugging"
             android:key="debugging">
 

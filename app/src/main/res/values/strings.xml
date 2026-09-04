@@ -471,11 +471,7 @@
     <string name="summary_keyboard_notification_true">Activate the keyboard by tapping the notification</string>
     <string name="summary_keyboard_notification_false">No notification</string>
 
-    <string name="title_application_category">Application-specific settings</string>
     
-    <string name="title_connectbot_tab_hack">ConnectBot tab key mode</string>
-    <string name="summary_connectbot_tab_hack_true">Enable compatibility workaround</string>
-    <string name="summary_connectbot_tab_hack_false">Send plain Tab key event</string>
 
     <string name="title_caps_lock">Double-tap Shift mode</string>
     <string name="summary_caps_lock_true">Caps Lock (q1 => Q1)</string>
