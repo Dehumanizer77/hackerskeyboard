@@ -100,10 +100,25 @@ android {
     }
 
     lint {
-        // The security-relevant checks must not be silently skipped.
+        // Upstream carries hundreds of pre-existing ExtraTranslation,
+        // NamespaceTypo and ResAuto findings, several of them fatal-severity;
+        // aborting on those would just mean nobody ever runs lint. So the build
+        // does not fail on lint, and tools/lint-security-gate.sh does: it fails
+        // on any Security-category finding at Error or Fatal severity, which is
+        // what CI runs. Raising the checks below to fatal is what puts the
+        // security warnings above that threshold.
         abortOnError false
         checkReleaseBuilds true
         warningsAsErrors false
+        fatal 'ExportedContentProvider', 'ExportedPreferenceActivity',
+                'ExportedReceiver', 'ExportedService', 'IntentFilterExportedReceiver',
+                'GrantAllUris', 'UnsafeProtectedBroadcastReceiver',
+                'UnspecifiedRegisterReceiverFlag', 'UnsafeIntentLaunch',
+                'UnsafeImplicitIntentLaunch', 'MutableImplicitPendingIntent',
+                'UnsafeDynamicallyLoadedCode', 'UnsafeNativeCodeLocation',
+                'WorldReadableFiles', 'WorldWriteableFiles',
+                'TrustAllX509TrustManager', 'InsecureBaseConfiguration',
+                'GetInstance', 'SecureRandom'
     }
 }
 
