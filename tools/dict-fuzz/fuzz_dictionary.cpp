@@ -211,6 +211,26 @@ static std::vector<unsigned char> craftRandom(int len) {
     return d;
 }
 
+// ---------------------------------------------------------------- review vectors
+
+// The deep-chain input from the 2026-09-07 review (SECURITY_REVIEW.md, SR-01),
+// reproduced byte for byte: 130 single-character nodes, each pointing at the
+// next, which drives getWordsRec() past the 128-element composition buffer on
+// the unpatched parser.
+static std::vector<unsigned char> reviewDeepChain() {
+    std::vector<unsigned char> data;
+    data.push_back(200); data.push_back(0);
+    for (int i = 0; i < 130; ++i) {
+        data.push_back(1); data.push_back('a');
+        int next = 2 + (i + 1) * 5;
+        data.push_back((unsigned char)(64 | ((next >> 16) & 63)));
+        data.push_back((unsigned char)((next >> 8) & 255));
+        data.push_back((unsigned char)(next & 255));
+    }
+    data.push_back(0);
+    return data;
+}
+
 // ---------------------------------------------------------------- exercise
 
 static void exercise(std::vector<unsigned char> &dict, int inputLen, unsigned char ch) {
@@ -314,6 +334,33 @@ int main(int argc, char **argv) {
         printf("  47-character word (slot limit) intact: %s\n", ok47 ? "yes" : "NO");
         if (!ok46) failures++;
         if (!ok47) failures++;
+    }
+
+    // The four inputs from the 2026-09-07 review (SECURITY_REVIEW.md, SR-01 and
+    // SR-02), kept verbatim so the review's acceptance test stays in the tree.
+    // Against the unpatched parser they produce, in order: a heap read past the
+    // end of the buffer in getVersionNumber(); the same in getChar() behind the
+    // 0xff multi-byte marker; a write past a 48-element output slot in
+    // searchForTerminalNode(); and a write past mWord[128] in getWordsRec().
+    printf("== regression: review vectors SR-01 / SR-02 ==\n");
+    {
+        std::vector<unsigned char> header;   header.push_back(200);
+        std::vector<unsigned char> truncated;
+        {
+            const unsigned char t[] = {200, 0, 1, 255};
+            truncated.assign(t, t + sizeof(t));
+        }
+        std::vector<unsigned char> bigram;
+        {
+            const unsigned char b[] = {200, 1, 1, 'a', 128, 1, 128, 0, 0, 1};
+            bigram.assign(b, b + sizeof(b));
+        }
+        std::vector<unsigned char> deep = reviewDeepChain();
+
+        exercise(header, 1, 'a');     printf("  header ok\n");
+        exercise(truncated, 1, 'a');  printf("  truncated ok\n");
+        exercise(bigram, 1, 'a');     printf("  bigram ok\n");
+        exercise(deep, 47, 'a');      printf("  deep ok\n");
     }
 
     printf("== crafted: deep trie chains ==\n");
