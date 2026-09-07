@@ -12,7 +12,8 @@ import android.view.Window;
  *    to edge (API 35+);
  *  - refuses touches that arrive while another window is drawn over this one,
  *    so an overlay cannot steer keyboard settings without the user seeing what
- *    they are tapping (SECURITY-REVIEW.md, HK-13).
+ *    they are tapping (SECURITY-REVIEW.md, HK-13);
+ *  - refuses fragment injection (SECURITY_REVIEW.md, SR-05 lint gate).
  */
 public class PreferenceScreenBase extends PreferenceActivity {
 
@@ -21,6 +22,19 @@ public class PreferenceScreenBase extends PreferenceActivity {
         super.onPostCreate(savedInstanceState);
         WindowInsetsHelper.fitSystemBars(this);
         filterObscuredTouches();
+    }
+
+    /**
+     * These screens are the classic XML-inflated kind: none of them hosts a
+     * PreferenceFragment. LatinIMESettings has to stay exported so the system
+     * Settings app can open the IME's settings screen, and an exported
+     * PreferenceActivity that accepts :android:show_fragment lets any app load
+     * an arbitrary Fragment into this process (fragment injection). Nothing is
+     * a valid fragment here.
+     */
+    @Override
+    protected boolean isValidFragment(String fragmentName) {
+        return false;
     }
 
     protected void filterObscuredTouches() {
