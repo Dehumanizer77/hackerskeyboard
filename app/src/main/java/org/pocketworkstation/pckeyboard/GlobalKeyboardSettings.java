@@ -46,6 +46,15 @@ public final class GlobalKeyboardSettings {
     public int keyboardModeLandscape = 2;
     public boolean compactModeEnabled = true;  // always on
     public int ctrlAOverride = 0;
+    //
+    // Read by LatinIME. How Ctrl and Alt behave: in a terminal they have to be
+    // sent as raw control characters and ESC prefixes, everywhere else as
+    // ordinary modified key events. 0 = detect, 1 = always terminal,
+    // 2 = never terminal.
+    public static final int TERMINAL_MODE_AUTO = 0;
+    public static final int TERMINAL_MODE_ALWAYS = 1;
+    public static final int TERMINAL_MODE_NEVER = 2;
+    public int terminalMode = TERMINAL_MODE_AUTO;
     public int chordingCtrlKey = 0;
     public int chordingAltKey = 0;
     public int chordingMetaKey = 0;
@@ -62,6 +71,15 @@ public final class GlobalKeyboardSettings {
     //
     // Read by PointerTracker
     public int sendSlideKeys = 0;
+    //
+    // Read by KeyboardSwitcher. Extra gap in dp left below the bottom key row,
+    // on top of whatever the system reserves for the navigation bar and the
+    // IME-switcher controls. The system insets keep the keys from being drawn
+    // under those controls, but leave them close enough that a slightly low tap
+    // on Ctrl/Alt or the arrow keys lands on the hide-keyboard or
+    // switch-keyboard affordance instead. How much room that needs depends on
+    // the device, so it is a setting rather than a constant.
+    public float bottomGapDp = 16.0f;
     
     /* Updated by LatinIME */
     //
@@ -118,6 +136,25 @@ public final class GlobalKeyboardSettings {
         int getFlags();
     }
 
+    /**
+     * Tolerant float parse for preferences that a user or an older version may
+     * have left in an unexpected shape. A malformed value here would otherwise
+     * throw while applying settings, which for an IME means the keyboard dies
+     * mid-edit; falling back to the default is always better.
+     */
+    private static float clampedFloat(String val, float fallback, float min, float max) {
+        float f = fallback;
+        if (val != null) {
+            try {
+                f = Float.parseFloat(val.trim());
+            } catch (NumberFormatException e) {
+                f = fallback;
+            }
+        }
+        if (Float.isNaN(f)) f = fallback;
+        return Math.max(min, Math.min(max, f));
+    }
+
     public void initPrefs(SharedPreferences prefs, Resources resources) {
         final Resources res = resources;
 
@@ -169,10 +206,22 @@ public final class GlobalKeyboardSettings {
             public int getFlags() { return FLAG_PREF_RESET_KEYBOARDS; }
         });
 
+        addStringPref("pref_bottom_gap", new StringPref() {
+            public void set(String val) { bottomGapDp = clampedFloat(val, 16.0f, 0.0f, 64.0f); }
+            public String getDefault() { return res.getString(R.string.default_bottom_gap); }
+            public int getFlags() { return FLAG_PREF_RECREATE_INPUT_VIEW; }
+        });
+
         addStringPref("pref_top_row_scale", new StringPref() {
             public void set(String val) { topRowScale = Float.valueOf(val); }
             public String getDefault() { return "1.0"; }
             public int getFlags() { return FLAG_PREF_RESET_KEYBOARDS; }
+        });
+
+        addStringPref("pref_terminal_mode", new StringPref() {
+            public void set(String val) { terminalMode = (int) clampedFloat(val, 0.0f, 0.0f, 2.0f); }
+            public String getDefault() { return res.getString(R.string.default_terminal_mode); }
+            public int getFlags() { return FLAG_PREF_NONE; }
         });
 
         addStringPref("pref_ctrl_a_override", new StringPref() {

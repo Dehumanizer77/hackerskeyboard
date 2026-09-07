@@ -471,11 +471,7 @@
     <string name="summary_keyboard_notification_true">Activate the keyboard by tapping the notification</string>
     <string name="summary_keyboard_notification_false">No notification</string>
 
-    <string name="title_application_category">Application-specific settings</string>
     
-    <string name="title_connectbot_tab_hack">ConnectBot tab key mode</string>
-    <string name="summary_connectbot_tab_hack_true">Enable compatibility workaround</string>
-    <string name="summary_connectbot_tab_hack_false">Send plain Tab key event</string>
 
     <string name="title_caps_lock">Double-tap Shift mode</string>
     <string name="summary_caps_lock_true">Caps Lock (q1 => Q1)</string>
@@ -688,4 +684,24 @@
     <string name="dict_packs_third_party">Language: %1$s \u2022 %2$s</string>
     <string name="dict_packs_warning_title">Why this asks</string>
     <string name="dict_packs_warning">A dictionary pack supplies the word list used for suggestions and autocorrect, and the keyboard reads it directly. Only enable packs from a source you trust.</string>
+
+    <!-- Extra space below the bottom key row -->
+    <string name="title_bottom_gap">Bottom gap</string>
+    <string name="summary_bottom_gap">Extra space between the bottom key row and the system\'s hide-keyboard and switch-keyboard buttons</string>
+    <string name="default_bottom_gap">16</string>
+
+    <!-- Terminal mode: how Ctrl and Alt are sent -->
+    <string name="title_terminal_mode">Terminal mode</string>
+    <string name="summary_terminal_mode">Send Ctrl as a raw control character and Alt as an ESC prefix, the way terminals and SSH clients expect. Set this to Always if Ctrl key combinations do not reach your shell.</string>
+    <string name="default_terminal_mode">0</string>
+    <string-array name="terminal_mode_entries">
+        <item>Detect terminal apps automatically</item>
+        <item>Always (every app)</item>
+        <item>Never</item>
+    </string-array>
+    <string-array name="terminal_mode_values">
+        <item>0</item>
+        <item>1</item>
+        <item>2</item>
+    </string-array>
 </resources>

@@ -92,7 +92,6 @@ public class LatinIME extends InputMethodService implements
     private static final String NOTIFICATION_CHANNEL_ID = "PCKeyboard";
     private static final int NOTIFICATION_ONGOING_ID = 1001;
     static Map<Integer, String> ESC_SEQUENCES;
-    static Map<Integer, Integer> CTRL_SEQUENCES;
 
     private static final String PREF_VIBRATE_ON = "vibrate_on";
     static final String PREF_VIBRATE_LEN = "vibrate_len";
@@ -119,7 +118,6 @@ public class LatinIME extends InputMethodService implements
     static final String PREF_FULLSCREEN_OVERRIDE = "fullscreen_override";
     static final String PREF_FORCE_KEYBOARD_ON = "force_keyboard_on";
     static final String PREF_KEYBOARD_NOTIFICATION = "keyboard_notification";
-    static final String PREF_CONNECTBOT_TAB_HACK = "connectbot_tab_hack";
     static final String PREF_FULL_KEYBOARD_IN_PORTRAIT = "full_keyboard_in_portrait";
     static final String PREF_SUGGESTIONS_IN_LANDSCAPE = "suggestions_in_landscape";
     static final String PREF_HEIGHT_PORTRAIT = "settings_height_portrait";
@@ -211,7 +209,6 @@ public class LatinIME extends InputMethodService implements
     private boolean mQuickFixes;
     private boolean mShowSuggestions;
     private boolean mIsShowingHint;
-    private boolean mConnectbotTabHack;
     private boolean mFullscreenOverride;
     private boolean mForceKeyboardOn;
     private boolean mKeyboardNotification;
@@ -383,8 +380,6 @@ public class LatinIME extends InputMethodService implements
         Resources res = getResources();
         mReCorrectionEnabled = prefs.getBoolean(PREF_RECORRECTION_ENABLED,
                 res.getBoolean(R.bool.default_recorrection_enabled));
-        mConnectbotTabHack = prefs.getBoolean(PREF_CONNECTBOT_TAB_HACK,
-                res.getBoolean(R.bool.default_connectbot_tab_hack));
         mFullscreenOverride = prefs.getBoolean(PREF_FULLSCREEN_OVERRIDE,
                 res.getBoolean(R.bool.default_fullscreen_override));
         mForceKeyboardOn = prefs.getBoolean(PREF_FORCE_KEYBOARD_ON,
@@ -1255,7 +1250,7 @@ public class LatinIME extends InputMethodService implements
         // mode
         float dimen = getResources().getDimension(
                 R.dimen.max_height_for_fullscreen);
-        if (displayHeight > dimen || mFullscreenOverride || isConnectbot()) {
+        if (displayHeight > dimen || mFullscreenOverride || isTerminalApp()) {
             return false;
         } else {
             return super.onEvaluateFullscreenMode();
@@ -1557,15 +1552,43 @@ public class LatinIME extends InputMethodService implements
         return mOptionsDialog != null && mOptionsDialog.isShowing();
     }
 
-    private boolean isConnectbot() {
+    /**
+     * True when this field should be driven like a terminal: Ctrl+key sends the
+     * raw control character, Alt sends an ESC prefix, Tab and Escape are passed
+     * through, and the keyboard does not go fullscreen in landscape.
+     *
+     * This used to require the editor's package to be one of four hardcoded
+     * ConnectBot builds *and* its inputType to be exactly 0 - a condition the
+     * original author marked FIXME. Any terminal not on that list, or one that
+     * sets an inputType to stop the IME autocorrecting shell commands, fell
+     * through to the ordinary text path. There, Ctrl-A is swallowed by the
+     * select-all override and Ctrl+key is sent as a modified key event the
+     * terminal never turns into a control character - so "Ctrl-A d" arrives at
+     * the shell as a bare "d".
+     *
+     * No hardcoded list can cover every terminal, so this is also settable
+     * directly: Settings > Terminal mode.
+     */
+    private boolean isTerminalApp() {
+        final int mode = sKeyboardSettings.terminalMode;
+        if (mode == GlobalKeyboardSettings.TERMINAL_MODE_ALWAYS) return true;
+        if (mode == GlobalKeyboardSettings.TERMINAL_MODE_NEVER) return false;
+
         EditorInfo ei = getCurrentInputEditorInfo();
-        String pkg = ei.packageName;
-        if (ei == null || pkg == null) return false;
-        return ((pkg.equalsIgnoreCase("org.connectbot")
-            || pkg.equalsIgnoreCase("org.woltage.irssiconnectbot")
-            || pkg.equalsIgnoreCase("com.pslib.connectbot")
-            || pkg.equalsIgnoreCase("sk.vx.connectbot")
-        ) && ei.inputType == 0); // FIXME
+        if (ei == null || ei.packageName == null) return false;
+        final String pkg = ei.packageName.toLowerCase(Locale.ROOT);
+
+        // Any ConnectBot descendant, however it is packaged, plus the other
+        // terminal and SSH clients people actually use.
+        if (pkg.contains("connectbot")) return true;
+        if (pkg.equals("com.termux") || pkg.startsWith("com.termux.")) return true;
+        if (pkg.equals("com.sonelli.juicessh")) return true;
+        if (pkg.equals("com.server.auditor.ssh.client")) return true;   // Termius
+        if (pkg.equals("com.googlecode.android_scripting")) return true;
+        if (pkg.equals("jackpal.androidterm")) return true;             // Terminal Emulator
+        if (pkg.equals("com.offsec.nethunter")) return true;
+
+        return false;
     }
 
     private int getMetaState(boolean shifted) {
@@ -1718,7 +1741,7 @@ public class LatinIME extends InputMethodService implements
     }
 
     private void sendSpecialKey(int code) {
-        if (!isConnectbot()) {
+        if (!isTerminalApp()) {
             commitTyped(getCurrentInputConnection(), true);
             sendModifiedKeyDownUp(code);
             return;
@@ -1730,7 +1753,6 @@ public class LatinIME extends InputMethodService implements
         // true numpad keys?
         if (ESC_SEQUENCES == null) {
             ESC_SEQUENCES = new HashMap<Integer, String>();
-            CTRL_SEQUENCES = new HashMap<Integer, Integer>();
 
             // VT escape sequences without leading Escape
             ESC_SEQUENCES.put(-LatinKeyboardView.KEYCODE_HOME, "[1~");
@@ -1752,17 +1774,6 @@ public class LatinIME extends InputMethodService implements
             ESC_SEQUENCES.put(-LatinKeyboardView.KEYCODE_FORWARD_DEL, "[3~");
             ESC_SEQUENCES.put(-LatinKeyboardView.KEYCODE_INSERT, "[2~");
 
-            // Special ConnectBot hack: Ctrl-1 to Ctrl-0 for F1-F10.
-            CTRL_SEQUENCES.put(-LatinKeyboardView.KEYCODE_FKEY_F1, KeyEvent.KEYCODE_1);
-            CTRL_SEQUENCES.put(-LatinKeyboardView.KEYCODE_FKEY_F2, KeyEvent.KEYCODE_2);
-            CTRL_SEQUENCES.put(-LatinKeyboardView.KEYCODE_FKEY_F3, KeyEvent.KEYCODE_3);
-            CTRL_SEQUENCES.put(-LatinKeyboardView.KEYCODE_FKEY_F4, KeyEvent.KEYCODE_4);
-            CTRL_SEQUENCES.put(-LatinKeyboardView.KEYCODE_FKEY_F5, KeyEvent.KEYCODE_5);
-            CTRL_SEQUENCES.put(-LatinKeyboardView.KEYCODE_FKEY_F6, KeyEvent.KEYCODE_6);
-            CTRL_SEQUENCES.put(-LatinKeyboardView.KEYCODE_FKEY_F7, KeyEvent.KEYCODE_7);
-            CTRL_SEQUENCES.put(-LatinKeyboardView.KEYCODE_FKEY_F8, KeyEvent.KEYCODE_8);
-            CTRL_SEQUENCES.put(-LatinKeyboardView.KEYCODE_FKEY_F9, KeyEvent.KEYCODE_9);
-            CTRL_SEQUENCES.put(-LatinKeyboardView.KEYCODE_FKEY_F10, KeyEvent.KEYCODE_0);
 
             // Natively supported by ConnectBot
             // ESC_SEQUENCES.put(-LatinKeyboardView.KEYCODE_DPAD_UP, "OA");
@@ -1778,26 +1789,9 @@ public class LatinIME extends InputMethodService implements
             // ESC_SEQUENCES.put(-LatinKeyboardView.KEYCODE_SCROLL_LOCK, "");
         }
         InputConnection ic = getCurrentInputConnection();
-        Integer ctrlseq = null;
-        if (mConnectbotTabHack) {
-            ctrlseq = CTRL_SEQUENCES.get(code);
-        }
         String seq = ESC_SEQUENCES.get(code);
 
-        if (ctrlseq != null) {
-            if (mModAlt) {
-                // send ESC prefix for "Alt"
-                ic.commitText(Character.toString((char) 27), 1);
-            }
-            ic.sendKeyEvent(new KeyEvent(KeyEvent.ACTION_DOWN,
-                    KeyEvent.KEYCODE_DPAD_CENTER));
-            ic.sendKeyEvent(new KeyEvent(KeyEvent.ACTION_UP,
-                    KeyEvent.KEYCODE_DPAD_CENTER));
-            ic.sendKeyEvent(new KeyEvent(KeyEvent.ACTION_DOWN,
-                    ctrlseq));
-            ic.sendKeyEvent(new KeyEvent(KeyEvent.ACTION_UP,
-                    ctrlseq));
-        } else if (seq != null) {
+        if (seq != null) {
             if (mModAlt) {
                 // send ESC prefix for "Alt"
                 ic.commitText(Character.toString((char) 27), 1);
@@ -1875,7 +1869,7 @@ public class LatinIME extends InputMethodService implements
         boolean modShift = isShiftMod();
         if ((modShift || mModCtrl || mModAlt || mModMeta) && ch > 0 && ch < 127) {
             InputConnection ic = getCurrentInputConnection();
-            if (isConnectbot()) {
+            if (isTerminalApp()) {
                 if (mModAlt) {
                     // send ESC prefix
                     ic.commitText(Character.toString((char) 27), 1);
@@ -1961,31 +1955,40 @@ public class LatinIME extends InputMethodService implements
         sendKeyChar(ch);
     }
     
+    /**
+     * Tab, which in a terminal is just the control character 0x09.
+     *
+     * This used to send DPAD_CENTER followed by KEYCODE_I: ConnectBot builds of
+     * the 2010 era treated a DPAD centre press as Ctrl, so the pair arrived as
+     * ^I. Current ConnectBot does not map DPAD_CENTER that way and drops it, so
+     * only the "i" survived - pressing Tab typed a letter instead of completing
+     * anything. The control character goes through the same InputConnection
+     * path that Ctrl-<key> already uses, which does work.
+     */
     private void sendTab() {
-        InputConnection ic = getCurrentInputConnection();
-        boolean tabHack = isConnectbot() && mConnectbotTabHack;
-
-        // FIXME: tab and ^I don't work in connectbot, hackish workaround
-        if (tabHack) {
-            if (mModAlt) {
-                // send ESC prefix
-                ic.commitText(Character.toString((char) 27), 1);
-            }
-            ic.sendKeyEvent(new KeyEvent(KeyEvent.ACTION_DOWN,
-                    KeyEvent.KEYCODE_DPAD_CENTER));
-            ic.sendKeyEvent(new KeyEvent(KeyEvent.ACTION_UP,
-                    KeyEvent.KEYCODE_DPAD_CENTER));
-            ic.sendKeyEvent(new KeyEvent(KeyEvent.ACTION_DOWN,
-                    KeyEvent.KEYCODE_I));
-            ic.sendKeyEvent(new KeyEvent(KeyEvent.ACTION_UP,
-                    KeyEvent.KEYCODE_I));
-        } else {
+        if (!isTerminalApp()) {
             sendModifiedKeyDownUp(KeyEvent.KEYCODE_TAB);
+            return;
         }
+
+        InputConnection ic = getCurrentInputConnection();
+        if (ic == null) return;
+        boolean shifted = isShiftMod();
+        if (mModAlt) {
+            // ESC prefix for "Alt", as everywhere else in terminal mode.
+            ic.commitText(Character.toString((char) 27), 1);
+        }
+        if (shifted) {
+            // Back-tab: CSI Z, what xterm sends for Shift-Tab.
+            ic.commitText("\u001b[Z", 1);
+        } else {
+            ic.commitText("\t", 1);
+        }
+        handleModifierKeysUp(shifted, false);
     }
 
     private void sendEscape() {
-        if (isConnectbot()) {
+        if (isTerminalApp()) {
             sendKeyChar((char) 27);
         } else {
             sendModifiedKeyDownUp(111 /*KeyEvent.KEYCODE_ESCAPE */);
@@ -3046,10 +3049,6 @@ public class LatinIME extends InputMethodService implements
                         res.getString(R.string.recorrect_warning), Toast.LENGTH_LONG)
                         .show();
             }
-        } else if (PREF_CONNECTBOT_TAB_HACK.equals(key)) {
-            mConnectbotTabHack = sharedPreferences.getBoolean(
-                    PREF_CONNECTBOT_TAB_HACK, res
-                            .getBoolean(R.bool.default_connectbot_tab_hack));
         } else if (PREF_FULLSCREEN_OVERRIDE.equals(key)) {
             mFullscreenOverride = sharedPreferences.getBoolean(
                     PREF_FULLSCREEN_OVERRIDE, res

@@ -40,6 +40,19 @@ public class LatinIMESettings extends PreferenceScreenBase
         implements SharedPreferences.OnSharedPreferenceChangeListener,
         DialogInterface.OnDismissListener {
 
+    /**
+     * This activity is exported so the system Settings app can open the IME's
+     * settings screen. An exported PreferenceActivity honours the
+     * :android:show_fragment extra, which would let any app load an arbitrary
+     * Fragment into this process. PreferenceScreenBase already refuses that for
+     * every settings screen; it is repeated here because this is the class the
+     * manifest exports, and because lint checks the exported class itself.
+     */
+    @Override
+    protected boolean isValidFragment(String fragmentName) {
+        return false;
+    }
+
     private static final String QUICK_FIXES_KEY = "quick_fixes";
     private static final String PREDICTION_SETTINGS_KEY = "prediction_settings";
     private static final String VOICE_SETTINGS_KEY = "voice_mode";

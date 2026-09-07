@@ -644,10 +644,19 @@ public class KeyboardSwitcher implements
             // flush against the navigation bar.
             final int themeBottomGap = mInputView.getPaddingBottom();
             mInputView.setPadding(0, 0, 0, 0);
+            // Plus the user's own gap. Not being drawn under the system controls
+            // is not the same as being far enough from them to aim at Ctrl, Alt
+            // or the arrow keys without catching the hide-keyboard or
+            // switch-keyboard affordance, and how much room that takes varies by
+            // device, so it is adjustable in Settings.
+            final float density = mInputMethodService.getResources()
+                    .getDisplayMetrics().density;
+            final int userGap = Math.round(
+                    LatinIME.sKeyboardSettings.bottomGapDp * density);
             // The IME window is laid out edge to edge (API 35+), so without this
             // the navigation bar and the IME-switcher controls are drawn over the
             // bottom key row. Zero where there is nothing to avoid.
-            WindowInsetsHelper.padForBottomSystemBars(mInputView, themeBottomGap);
+            WindowInsetsHelper.padForBottomSystemBars(mInputView, themeBottomGap + userGap);
             mLayoutId = newLayout;
         }
         mInputMethodService.mHandler.post(new Runnable() {

@@ -4,6 +4,13 @@ This branch takes Hacker's Keyboard from the state described in the security
 review (commit `9202d9d`, targeting API 26) to a build that targets current
 Android and no longer carries the findings that review reported.
 
+Two review documents sit in this repository, and the hyphen is the only thing
+separating their names:
+
+* `SECURITY-REVIEW.md` — the first review, findings **HK-01 … HK-14**.
+* `SECURITY_REVIEW.md` — a second, independent review of upstream `9202d9d`
+  dated 7 September 2026, findings **SR-01 … SR-05**.
+
 Two things happened here, and they are separable:
 
 1. **Modernisation** — the app now builds against and targets API 36 with a
@@ -31,9 +38,70 @@ Two things happened here, and they are separable:
 | HK-13 | No tapjacking protection | Low | Fixed for settings screens (see note) | `24ce894` |
 | HK-14 | Dead contacts-harvesting code | Info | Removed | `bc4f021` |
 | **HK-15** | **Exponential trie traversal (DoS)** | **Medium** | **Fixed** | `c4dc907` |
+| **HK-16** | **Fragment injection via exported settings activity** | **Medium** | **Fixed** | this commit |
 
 HK-15 was not in the original review. It was found by the fuzz harness added
-here: see below.
+here: see below. HK-16 was not in either review — the lint gate added for SR-05
+found it.
+
+## Second review, 7 September 2026
+
+A second review (`SECURITY_REVIEW.md`, in Slovak) was run against **upstream
+`9202d9d`** — not against this branch — so most of what it reports is the same
+ground as the table above, seen independently. Its findings map as follows.
+
+| ID | Finding | Already covered by | Outstanding work, done here |
+|----|---------|--------------------|------------------------------|
+| SR-01 | Out-of-bounds writes walking the trie | HK-01, HK-15 (`c4dc907`) | Its two inputs added as fixed regression cases |
+| SR-02 | Reads past the end of the dictionary | HK-01 native + JNI (`c4dc907`) | The **Java loader** still trusted `available()` — fixed |
+| SR-03 | `IME_FLAG_NO_PERSONALIZED_LEARNING` ignored | HK-04 (`f7bd5ac`, `e539df1`) | — |
+| SR-04 | Notification receiver callable by any app | HK-05, HK-06 (`f7bd5ac`) | — |
+| SR-05 | Non-reproducible build, release lint off | HK-08 (`45de62a`) | Distribution checksum, CI, security lint gate, build docs |
+| **HK-16** | **Fragment injection via the exported settings activity** | — | Found by the new lint gate; fixed |
+
+All four of the review's sanitizer inputs (`header`, `truncated`, `bigram`,
+`deep`) were run against this branch before anything was changed: all four
+already passed clean, and all four still fail on upstream. They are now part of
+`tools/dict-fuzz` so they stay checked.
+
+### SR-02, the part that was still open
+
+`BinaryDictionary.loadDictionary()` sized its buffer from
+`InputStream.available()`, summed those sizes without a bound, and then did a
+single channel read per part. `available()` is not the length of a stream, and
+one read is not guaranteed to return everything: a short read left the tail of
+the buffer as zeroes while the size handed to the parser still covered it, so
+the parser walked bytes that were never in the file. The native side has been
+bounds-checked since HK-01, so this was no longer memory-unsafe — it was the
+parser being fed data the file never contained. Each part is now read to EOF,
+the total is capped at 16 MB (the format can only address 4 MB), and the native
+side is told how much was actually read.
+
+### HK-16, fragment injection
+
+`LatinIMESettings` is a `PreferenceActivity` and has to stay exported, because
+the system Settings app opens the IME's settings screen by component. An
+exported `PreferenceActivity` honours the `:android:show_fragment` extra, which
+lets any installed app load an arbitrary `Fragment` into this process. None of
+these screens hosts a fragment at all, so `isValidFragment()` now returns false
+— on `PreferenceScreenBase` for every settings screen, and on
+`LatinIMESettings` itself, which is the class the manifest exports.
+
+This was not in either review's findings list. The lint gate added for SR-05
+reported it on its first run, which is the argument for having the gate.
+
+### SR-05, what "release lint" now means
+
+`abortOnError` stays off: upstream carries several hundred pre-existing
+`ExtraTranslation`, `NamespaceTypo` and `ResAuto` findings, some of them
+fatal-severity, and a build that always fails is a build nobody lints. The
+security checks are raised to fatal in `app/build.gradle`, and
+`tools/lint-security-gate.sh` fails on any Security-category finding at Error or
+Fatal severity. That script and the parser harness both run in CI
+(`.github/workflows/ci.yml`). The Gradle distribution is pinned by
+`distributionSha256Sum` (verified against the checksum Gradle publishes
+alongside the distribution), so the wrapper will not execute a substituted
+download.
 
 ## The chain that mattered
 
@@ -108,9 +176,16 @@ Stating these plainly, because they are the gaps in this work:
   that space. Fixed by applying the reported navigation-bar and display-cutout
   insets as bottom padding on the input view.
 
-  Still unverified on a device: the notification permission flow on API 33+, the
-  new dictionary-pack settings screen, and the inset padding on the settings
-  screens.
+  Clearing the system controls turned out not to be the same as being far enough
+  from them to aim at Ctrl, Alt or the arrow keys: taps that fell slightly low
+  still landed on the hide-keyboard and switch-keyboard affordances. The gap
+  below the bottom key row is now an adjustable setting (Settings > Bottom gap,
+  default 16 dp on top of the system insets) rather than a fixed constant,
+  because how much room that needs depends on the device.
+
+  Still unverified on a device: the size of that default, the notification
+  permission flow on API 33+, the new dictionary-pack settings screen, and the
+  inset padding on the settings screens.
 - **R8 is newly enabled.** Release builds are verified to keep the JNI entry
   point (`BinaryDictionary` and its native method names — renaming them breaks
   every dictionary lookup silently) and every XML-inflated View and Preference

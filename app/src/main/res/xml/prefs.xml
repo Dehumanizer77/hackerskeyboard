@@ -45,6 +45,18 @@
             android:persistent="true"
             />
 
+    <org.pocketworkstation.pckeyboard.SeekBarPreferenceString
+            android:defaultValue="@string/default_bottom_gap"
+            hk:minValue="0"
+            hk:maxValue="64"
+            hk:step="2"
+            hk:displayFormat="%.0f dp"
+            android:key="pref_bottom_gap"
+            android:title="@string/title_bottom_gap"
+            android:summary="@string/summary_bottom_gap"
+            android:persistent="true"
+            />
+
     <org.pocketworkstation.pckeyboard.AutoSummaryListPreference
             android:key="pref_keyboard_mode_portrait"
             android:title="@string/title_keyboard_mode_portrait"
@@ -160,6 +172,16 @@
         <intent android:targetPackage="org.pocketworkstation.pckeyboard"
                 android:targetClass="org.pocketworkstation.pckeyboard.PrefScreenActions"/>
     </PreferenceScreen>
+
+    <org.pocketworkstation.pckeyboard.AutoSummaryListPreference
+            android:key="pref_terminal_mode"
+            android:title="@string/title_terminal_mode"
+            android:summary="@string/summary_terminal_mode"
+            android:persistent="true"
+            android:entries="@array/terminal_mode_entries"
+            android:entryValues="@array/terminal_mode_values"
+            android:defaultValue="@string/default_terminal_mode"
+            />
 
     <org.pocketworkstation.pckeyboard.AutoSummaryListPreference
             android:key="pref_ctrl_a_override"
@@ -307,21 +329,6 @@
             android:summaryOn="@string/summary_keyboard_notification_true"
             android:summaryOff="@string/summary_keyboard_notification_false"
             />
-    </PreferenceCategory>
-
-    <PreferenceCategory
-            android:title="@string/title_application_category"
-            android:key="application_settings">
-
-        <CheckBoxPreference
-            android:key="connectbot_tab_hack"
-            android:title="@string/title_connectbot_tab_hack"
-            android:persistent="true" 
-            android:defaultValue="true"
-            android:summaryOn="@string/summary_connectbot_tab_hack_true"
-            android:summaryOff="@string/summary_connectbot_tab_hack_false"
-            />
-
     </PreferenceCategory>
 
     <PreferenceCategory

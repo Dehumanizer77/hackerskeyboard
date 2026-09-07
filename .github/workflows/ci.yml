@@ -1,0 +1,81 @@
+# Continuous checks for the hardened branch (SECURITY_REVIEW.md, SR-05).
+#
+# Two things have to keep holding after every change:
+#   * the dictionary parser survives hostile input - it consumes files that any
+#     installed package can supply, so it is the one component fuzzed here;
+#   * the app still builds, and no Security-category lint finding sneaks in.
+#     The build itself does not abort on lint (upstream noise, see
+#     app/build.gradle); tools/lint-security-gate.sh is the gate.
+name: CI
+
+on:
+  push:
+    branches: [ security-hardening, master ]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  dictionary-parser:
+    name: Dictionary parser under ASan/UBSan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      # Includes the four inputs from the review (SR-01, SR-02) as fixed
+      # regression cases, then several thousand mutated dictionaries.
+      - name: Fuzz and regression-test the parser
+        env:
+          ITERATIONS: 20000
+        run: tools/dict-fuzz/run.sh
+
+  android:
+    name: Build and lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      # Refuses to run if gradle-wrapper.jar is not a known-good release
+      # artifact; the distribution itself is pinned by distributionSha256Sum in
+      # gradle/wrapper/gradle-wrapper.properties.
+      - uses: gradle/actions/wrapper-validation@v4
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Install the pinned NDK and CMake
+        run: |
+          # Deliberately no pipefail: sdkmanager exits while `yes` is still
+          # writing, and the broken pipe would fail the step even though the
+          # install succeeded. Without pipefail the pipeline reports
+          # sdkmanager's own status, which is what matters here.
+          set -eu
+          ndk=$(grep -oP "ndkVersion\s+'\K[0-9.]+" app/build.gradle)
+          cmake=$(grep -oP "version\s+'\K3[0-9.]+" app/build.gradle | head -1)
+          echo "NDK $ndk, CMake $cmake"
+          yes 2>/dev/null | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" \
+              "ndk;$ndk" "cmake;$cmake" > /dev/null
+
+      - name: Assemble
+        run: ./gradlew --no-daemon :app:assembleDebug :app:assembleRelease
+
+      - name: Lint
+        run: ./gradlew --no-daemon :app:lintRelease
+
+      # Fails only on Security-category findings; the rest of the report is
+      # uploaded below for reading, not for blocking.
+      - name: Security lint gate
+        run: tools/lint-security-gate.sh app/build/reports/lint-results-release.xml
+
+      - uses: actions/upload-artifact@v5
+        if: always()
+        with:
+          name: lint-reports
+          path: app/build/reports/lint-results-*.*
+          if-no-files-found: ignore

@@ -16,11 +16,11 @@
 
 package org.pocketworkstation.pckeyboard;
 
+import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
-import java.nio.channels.Channels;
 import java.util.Arrays;
 
 import android.content.Context;
@@ -124,30 +124,70 @@ public class BinaryDictionary extends Dictionary {
             int[] inputCodes, int inputCodesLength, char[] outputChars, int[] frequencies,
             int maxWordLength, int maxBigrams, int maxAlternatives);
 
+    /**
+     * Upper bound on a dictionary this keyboard is willing to load.
+     *
+     * The file format addresses nodes with 22 bits (ADDRESS_MASK in
+     * dictionary.h), so nothing past 4 MB is reachable by the parser anyway.
+     * The cap sits well above that, so no real dictionary is refused, but the
+     * allocation stays bounded: dictionary data can come from any installed
+     * package (SECURITY-REVIEW.md, HK-02), and so can the length of the stream
+     * carrying it.
+     */
+    private static final int MAX_DICTIONARY_BYTES = 16 * 1024 * 1024;
+
+    /**
+     * Reads the dictionary parts into one direct buffer.
+     *
+     * This used to size the buffer from InputStream.available() and then do a
+     * single channel read per part, which assumes both that available()
+     * reports the whole stream and that one read returns all of it. Neither
+     * holds for a compressed resource or an asset handed over by another
+     * package. A short read left the tail of the buffer as zeroes while the
+     * size passed to the parser still covered it, so the parser walked bytes
+     * that were never in the file; the sum of the parts was also accumulated
+     * without a bound. Each part is now read to EOF, the total is capped, and
+     * the native side is told only how much was actually read.
+     */
     private final void loadDictionary(InputStream[] is) {
         try {
-            // merging separated dictionary into one if dictionary is separated
-            int total = 0;
-
+            ByteArrayOutputStream merged = new ByteArrayOutputStream(1 << 16);
+            byte[] chunk = new byte[1 << 13];
             for (int i = 0; i < is.length; i++) {
-                total += is[i].available();
+                int n;
+                while ((n = is[i].read(chunk)) > 0) {
+                    // Phrased as a subtraction: size() + n can overflow.
+                    if (n > MAX_DICTIONARY_BYTES - merged.size()) {
+                        Log.e(TAG, "Dictionary is larger than " + MAX_DICTIONARY_BYTES
+                                + " bytes, not loading it");
+                        return;
+                    }
+                    merged.write(chunk, 0, n);
+                }
+            }
+
+            int total = merged.size();
+            if (total == 0) {
+                Log.e(TAG, "Dictionary is empty, not loading it");
+                return;
             }
 
             mNativeDictDirectBuffer =
                 ByteBuffer.allocateDirect(total).order(ByteOrder.nativeOrder());
-            int got = 0;
-            for (int i = 0; i < is.length; i++) {
-                got += Channels.newChannel(is[i]).read(mNativeDictDirectBuffer);
+            mNativeDictDirectBuffer.put(merged.toByteArray());
+            mNativeDict = openNative(mNativeDictDirectBuffer,
+                    TYPED_LETTER_MULTIPLIER, FULL_WORD_FREQ_MULTIPLIER, total);
+            if (mNativeDict == 0) {
+                // The JNI layer refused the buffer or its declared size.
+                Log.e(TAG, "Native dictionary rejected the data, len=" + total);
+                mNativeDictDirectBuffer = null;
+                return;
             }
-            if (got != total) {
-                Log.e(TAG, "Read " + got + " bytes, expected " + total);
-            } else {
-                mNativeDict = openNative(mNativeDictDirectBuffer,
-                        TYPED_LETTER_MULTIPLIER, FULL_WORD_FREQ_MULTIPLIER, total);
-                mDictLength = total;
-            }
+            mDictLength = total;
             if (mDictLength > 10000) Log.i("PCKeyboard", "Loaded dictionary, len=" + mDictLength);
         } catch (IOException e) {
+            Log.w(TAG, "Failed to read binary dictionary", e);
+        } catch (OutOfMemoryError e) {
             Log.w(TAG, "No available memory for binary dictionary");
         } catch (UnsatisfiedLinkError e) {
             Log.w(TAG, "Failed to load native dictionary", e);
